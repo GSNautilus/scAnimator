@@ -51,7 +51,7 @@
 
   UI LAYOUT
     Top center     - n_neighbors label
-    Left panel     - "scAnimator / v1.0.2" header, then:
+    Left panel     - "scAnimator / v1.0.3" header, then:
                      Color By dropdown, Filter section (column selector + checkboxes),
                      Gene Expression (autocomplete + mapping + colormap selectors),
                      Sliders: brightness, bloom, point size, trail length
@@ -251,7 +251,7 @@
 
 <div id="panel" style="display:none">
   <h3>scAnimator</h3>
-  <div class="panel-subtitle">v1.0.2</div>
+  <div class="panel-subtitle">v1.0.3</div>
 
   <div class="panel-section">
     <div class="panel-label">Color By</div>
@@ -517,6 +517,7 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.2;
+renderer.getContext().drawingBufferColorSpace = 'srgb';
 document.body.appendChild(renderer.domElement);
 
 const orbitControls = new OrbitControls(camera, renderer.domElement);
@@ -566,9 +567,21 @@ const fsScene = new THREE.Scene(); fsScene.add(fsQuad);
 const fsCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
 const outputMaterial = new THREE.ShaderMaterial({
-  uniforms: { tDiffuse: { value: null } },
+  uniforms: { tDiffuse: { value: null }, uExposure: { value: 1.2 } },
   vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
-  fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv; void main() { gl_FragColor = texture2D(tDiffuse, vUv); }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float uExposure;
+    varying vec2 vUv;
+    // ACES filmic tone mapping (same curve as THREE.ACESFilmicToneMapping)
+    vec3 ACESFilmic(vec3 x) {
+      float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+      return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+    }
+    void main() {
+      vec3 c = texture2D(tDiffuse, vUv).rgb * uExposure;
+      gl_FragColor = vec4(ACESFilmic(c), 1.0);
+    }
+  `,
 });
 const outputQuad = new THREE.Mesh(fsQuadGeo.clone(), outputMaterial);
 const outputScene = new THREE.Scene(); outputScene.add(outputQuad);
@@ -1025,28 +1038,31 @@ function startRecording() {
   const wantSquare = document.getElementById('rec-square').checked;
   const recFps = fpsLimit > 0 ? fpsLimit : 60;
 
-  let sourceStream;
+  // Always capture through a 2D canvas intermediary so drawImage applies
+  // proper sRGB color space conversion (captureStream on WebGL skips this)
+  const srcW = renderer.domElement.width;
+  const srcH = renderer.domElement.height;
+  let capW, capH, sx, sy;
   if (wantSquare) {
-    const srcW = renderer.domElement.width;
-    const srcH = renderer.domElement.height;
     const side = Math.min(srcW, srcH);
-    recSquareCanvas = document.createElement('canvas');
-    recSquareCanvas.width = side;
-    recSquareCanvas.height = side;
-    recSquareCtx = recSquareCanvas.getContext('2d');
-    const sx = Math.floor((srcW - side) / 2);
-    const sy = Math.floor((srcH - side) / 2);
-    recSquareInterval = setInterval(() => {
-      recSquareCtx.drawImage(renderer.domElement, sx, sy, side, side, 0, 0, side, side);
-    }, 1000 / recFps);
-    sourceStream = recSquareCanvas.captureStream(recFps);
+    capW = side; capH = side;
+    sx = Math.floor((srcW - side) / 2);
+    sy = Math.floor((srcH - side) / 2);
   } else {
-    sourceStream = renderer.domElement.captureStream(recFps);
+    capW = srcW; capH = srcH;
+    sx = 0; sy = 0;
   }
+  recSquareCanvas = document.createElement('canvas');
+  recSquareCanvas.width = capW;
+  recSquareCanvas.height = capH;
+  recSquareCtx = recSquareCanvas.getContext('2d');
+  recSquareInterval = setInterval(() => {
+    recSquareCtx.drawImage(renderer.domElement, sx, sy, capW, capH, 0, 0, capW, capH);
+  }, 1000 / recFps);
+  let sourceStream = recSquareCanvas.captureStream(recFps);
   recStream = sourceStream;
 
-  const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-    ? 'video/webm;codecs=vp9' : 'video/webm';
+  const mimeType = 'video/webm;codecs=vp8';
 
   recordedChunks = [];
   mediaRecorder = new MediaRecorder(recStream, { mimeType, videoBitsPerSecond: 20000000 });
@@ -1096,6 +1112,8 @@ btnRecord.addEventListener('click', () => {
   if (isRecording) stopRecording();
   else startRecording();
 });
+
+
 
 // ── Init + show UI ──
 setFrame(0);

@@ -42,7 +42,7 @@
                      Colorbar shown in bottom-right for colormap mode
     Autocomplete   - Matches sorted by expression rank from gene_ranks.json
                      Shows rank annotation like "#42/28134"
-    Animation      - requestAnimationFrame loop with debt-accumulator FPS limiter (bypass during rec)
+    Animation      - requestAnimationFrame loop at native refresh rate
                      Accumulator-based frame stepping with configurable speed
     360 rotation   - Rodrigues rotation around camera's current up vector
     Recording      - captureStream(0) + MediaRecorder. Stream/track stored once at
@@ -51,12 +51,12 @@
 
   UI LAYOUT
     Top center     - n_neighbors label
-    Left panel     - "scAnimator / v1.0.3" header, then:
+    Left panel     - "scAnimator / v1.0.4" header, then:
                      Color By dropdown, Filter section (column selector + checkboxes),
                      Gene Expression (autocomplete + mapping + colormap selectors),
                      Sliders: brightness, bloom, point size, trail length
     Right          - Legend (click to toggle categories)
-    Bottom center  - Play/Pause, frame slider, speed, 360 toggle, FPS limit,
+    Bottom center  - Play/Pause, frame slider, speed, 360 toggle,
                      resolution, format, record button
     Bottom right   - FPS counter (tiny monospace)
 
@@ -191,17 +191,28 @@
   #controls button.recording { background: rgba(200,30,30,0.4); border-color: rgba(200,30,30,0.6); }
   #controls button.active { background: rgba(80,160,255,0.25); border-color: rgba(80,160,255,0.5); }
   #slider { width: 500px; accent-color: #888; }
-  #rec-format, #fps-limit {
+  #rec-format {
     background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2);
     color: #fff; padding: 5px 8px; border-radius: 4px; font-size: 12px; outline: none;
   }
-  #rec-format option, #fps-limit option { background: #111; }
+  #rec-format option { background: #111; }
 
   #fps-counter {
     position: absolute; bottom: 8px; right: 12px; z-index: 10;
     font-size: 10px; opacity: 0.25; font-family: monospace;
     pointer-events: none;
   }
+
+  #util-buttons {
+    position: absolute; bottom: 24px; right: 16px; z-index: 30;
+    display: flex; gap: 6px;
+  }
+  #util-buttons button {
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+    color: rgba(255,255,255,0.6); padding: 5px 8px; cursor: pointer;
+    border-radius: 4px; font-size: 15px; line-height: 1;
+  }
+  #util-buttons button:hover { background: rgba(255,255,255,0.2); color: #fff; }
 
   #legend {
     position: absolute; top: 16px; right: 24px; z-index: 10;
@@ -251,7 +262,7 @@
 
 <div id="panel" style="display:none">
   <h3>scAnimator</h3>
-  <div class="panel-subtitle">v1.0.3</div>
+  <div class="panel-subtitle">v1.0.4</div>
 
   <div class="panel-section">
     <div class="panel-label">Color By</div>
@@ -330,17 +341,18 @@
   <input type="range" id="slider" min="0" max="0" value="0">
   <button id="btn-speed" title="Cycle speed">1x</button>
   <button id="btn-rotate" title="Toggle 360 rotation">360</button>
-  <select id="fps-limit" title="Frame rate limit">
-    <option value="0" selected>Native</option>
-    <option value="30">30 fps</option>
-    <option value="60">60 fps</option>
-    <option value="120">120 fps</option>
-    <option value="144">144 fps</option>
-  </select>
   <label style="display:flex;align-items:center;gap:4px;font-size:12px;opacity:0.7;cursor:pointer;user-select:none">
     <input type="checkbox" id="rec-square" style="accent-color:#888;margin:0;cursor:pointer"> Square
   </label>
+  <label style="display:flex;align-items:center;gap:4px;font-size:12px;opacity:0.7;cursor:pointer;user-select:none">
+    <input type="checkbox" id="rec-hud" checked style="accent-color:#888;margin:0;cursor:pointer"> Record Legend
+  </label>
   <button id="btn-record">Record Loop</button>
+</div>
+
+<div id="util-buttons" style="display:none">
+  <button id="btn-hide-ui" title="Toggle UI">&#128065;</button>
+  <button id="btn-fullscreen" title="Toggle fullscreen">&#x26F6;</button>
 </div>
 
 <script type="importmap">
@@ -953,19 +965,6 @@ btnRotate.addEventListener('click', () => {
   btnRotate.classList.toggle('active', rotating360);
 });
 
-// ── FPS limiter ──
-let fpsLimit = 0;
-let fpsInterval = 0;
-let fpsDebt = 0;
-const fpsLimitSelect = document.getElementById('fps-limit');
-fpsLimitSelect.value = '0';  // ensure Native is selected on init
-
-fpsLimitSelect.addEventListener('change', () => {
-  fpsLimit = parseInt(fpsLimitSelect.value);
-  fpsInterval = fpsLimit > 0 ? 1000 / fpsLimit : 0;
-  fpsDebt = 0;
-});
-
 // FPS counter
 const fpsCounterEl = document.getElementById('fps-counter');
 let renderFrames = 0;
@@ -1018,6 +1017,48 @@ btnSpeed.addEventListener('click', () => {
 });
 slider.addEventListener('input', () => { setFrame(parseInt(slider.value)); });
 
+// ── Recording HUD overlay ──
+function drawRecHud(ctx, w, h) {
+  const scale = h / 1080;  // scale text relative to 1080p
+  const pad = 16 * scale;
+
+  // n_neighbors label — top center
+  const nnText = paramLabel.textContent;
+  ctx.font = `${Math.round(16 * scale)}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.fillText(nnText, w / 2, pad);
+
+  // Legend — top right
+  const legendItems = legendEl.querySelectorAll('.legend-item:not(.disabled)');
+  if (legendItems.length === 0) return;
+  const fontSize = Math.round(12 * scale);
+  const dotR = Math.round(4 * scale);
+  const lineH = Math.round(fontSize * 1.7);
+  ctx.font = `${fontSize}px sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  let y = pad + Math.round(8 * scale);
+  const x = w - pad;
+  for (const item of legendItems) {
+    const dot = item.querySelector('.legend-dot');
+    const color = dot ? dot.style.backgroundColor : 'white';
+    const label = item.textContent.trim();
+    const tw = ctx.measureText(label).width;
+    const itemX = x - tw - dotR * 2 - 6 * scale;
+    // dot
+    ctx.beginPath();
+    ctx.arc(itemX + dotR, y + lineH / 2, dotR, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    // label
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillText(label, itemX + dotR * 2 + 6 * scale, y + lineH / 2);
+    y += lineH;
+  }
+}
+
 // ── Recording ──
 let isRecording = false;
 let mediaRecorder = null;
@@ -1036,7 +1077,7 @@ const recIndicator = document.getElementById('rec-indicator');
 function startRecording() {
   const fmt = 'webm';
   const wantSquare = document.getElementById('rec-square').checked;
-  const recFps = fpsLimit > 0 ? fpsLimit : 60;
+  const recFps = 60;
 
   // Always capture through a 2D canvas intermediary so drawImage applies
   // proper sRGB color space conversion (captureStream on WebGL skips this)
@@ -1056,8 +1097,10 @@ function startRecording() {
   recSquareCanvas.width = capW;
   recSquareCanvas.height = capH;
   recSquareCtx = recSquareCanvas.getContext('2d');
+  const recHud = document.getElementById('rec-hud').checked;
   recSquareInterval = setInterval(() => {
     recSquareCtx.drawImage(renderer.domElement, sx, sy, capW, capH, 0, 0, capW, capH);
+    if (recHud) drawRecHud(recSquareCtx, capW, capH);
   }, 1000 / recFps);
   let sourceStream = recSquareCanvas.captureStream(recFps);
   recStream = sourceStream;
@@ -1124,25 +1167,34 @@ setTimeout(() => {
   document.getElementById('panel').style.display = '';
   document.getElementById('legend').style.display = '';
   document.getElementById('controls').style.display = '';
+  document.getElementById('util-buttons').style.display = '';
 }, 300);
 
+// ── Hide UI / Fullscreen buttons ──
+const uiTargets = ['panel', 'legend', 'controls', 'param-label', 'gene-colorbar', 'fps-counter'];
+let uiHidden = false;
+document.getElementById('btn-hide-ui').addEventListener('click', () => {
+  uiHidden = !uiHidden;
+  for (const id of uiTargets) {
+    const el = document.getElementById(id);
+    if (el) el.style.visibility = uiHidden ? 'hidden' : '';
+  }
+});
+
+document.getElementById('btn-fullscreen').addEventListener('click', () => {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen();
+  } else {
+    document.exitFullscreen();
+  }
+});
+
 // ── Render loop ──
-let lastTickTime = performance.now();
 let lastRenderTime = performance.now();
 
 function animate(now) {
   requestAnimationFrame(animate);
 
-  // FPS limiting (bypass during recording)
-  const tickDelta = now - lastTickTime;
-  lastTickTime = now;
-  if (!isRecording && fpsInterval > 0) {
-    fpsDebt += tickDelta;
-    if (fpsDebt < fpsInterval) return;
-    fpsDebt -= fpsInterval;
-    // Clamp to prevent catch-up spiral after tab-away
-    if (fpsDebt > fpsInterval) fpsDebt = 0;
-  }
   const dt = (now - lastRenderTime) / 1000;
   lastRenderTime = now;
 
@@ -1150,11 +1202,7 @@ function animate(now) {
   renderFrames++;
   if (now - renderLastSample >= 500) {
     const fps = renderFrames / ((now - renderLastSample) / 1000);
-    if (fpsLimit > 0) {
-      fpsCounterEl.textContent = Math.round(fps) + ' (' + fpsLimit + ') fps';
-    } else {
-      fpsCounterEl.textContent = Math.round(fps) + ' fps';
-    }
+    fpsCounterEl.textContent = Math.round(fps) + ' fps';
     renderFrames = 0;
     renderLastSample = now;
   }

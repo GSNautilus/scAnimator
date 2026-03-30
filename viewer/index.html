@@ -1009,12 +1009,13 @@ slider.addEventListener('input', () => { setFrame(parseInt(slider.value)); });
 let isRecording = false;
 let mediaRecorder = null;
 let recordedChunks = [];
-let recordStartFrame = 0;
-let recordLoopCount = 0;
 let recStream = null;
 let recSquareCanvas = null;
 let recSquareCtx = null;
 let recSquareInterval = null;
+// 360 sync during recording: total angle to rotate = 2π, spread over nFrames
+let recRotationStart = null;  // camera offset vector at rec start
+let recFrameCount = 0;        // frames rendered since rec started
 
 const btnRecord = document.getElementById('btn-record');
 const recIndicator = document.getElementById('rec-indicator');
@@ -1026,7 +1027,6 @@ function startRecording() {
 
   let sourceStream;
   if (wantSquare) {
-    // Create offscreen canvas that crops to square from center
     const srcW = renderer.domElement.width;
     const srcH = renderer.domElement.height;
     const side = Math.min(srcW, srcH);
@@ -1059,9 +1059,17 @@ function startRecording() {
     a.click();
   };
 
+  // Reset animation to frame 0
+  currentFrame = 0;
+  accumulator = 0;
+  setFrame(0);
+  slider.value = 0;
+
+  // Save camera offset for synced 360 rotation
+  recRotationStart = camera.position.clone().sub(orbitControls.target);
+  recFrameCount = 0;
+
   isRecording = true;
-  recordStartFrame = currentFrame;
-  recordLoopCount = 0;
   playing = true;
   btnPlay.textContent = 'Pause';
   mediaRecorder.start();
@@ -1078,6 +1086,7 @@ function stopRecording() {
   if (recSquareInterval) { clearInterval(recSquareInterval); recSquareInterval = null; }
   recSquareCanvas = null;
   recSquareCtx = null;
+  recRotationStart = null;
   btnRecord.textContent = 'Record Loop';
   btnRecord.classList.remove('recording');
   recIndicator.style.display = 'none';
@@ -1141,8 +1150,9 @@ function animate(now) {
       setFrame(currentFrame);
 
       if (isRecording) {
-        if (currentFrame === 0 && prevFrame === nFrames - 1) recordLoopCount++;
-        if (recordLoopCount >= 1 && currentFrame >= recordStartFrame) {
+        recFrameCount++;
+        // Stop precisely when we've completed one full loop
+        if (currentFrame === 0 && prevFrame === nFrames - 1) {
           stopRecording();
           break;
         }
@@ -1151,11 +1161,20 @@ function animate(now) {
   }
 
   // 360 auto-rotation around camera's current up axis
-  if (rotating360) {
+  if (isRecording && rotating360 && recRotationStart) {
+    // Sync rotation to frame progress: one full 360 over nFrames
+    const angle = (2 * Math.PI * currentFrame) / nFrames;
+    const up = camera.up.clone().normalize();
+    const offset = recRotationStart.clone();
+    const cosA = Math.cos(angle), sinA = Math.sin(angle);
+    const dot = offset.dot(up);
+    const cross = new THREE.Vector3().crossVectors(up, offset);
+    offset.multiplyScalar(cosA).add(cross.multiplyScalar(sinA)).add(up.multiplyScalar(dot * (1 - cosA)));
+    camera.position.copy(orbitControls.target).add(offset);
+  } else if (rotating360) {
     const angle = rotateSpeed360 * dt;
     const up = camera.up.clone().normalize();
     const offset = camera.position.clone().sub(orbitControls.target);
-    // Rodrigues' rotation formula: rotate offset around up by angle
     const cosA = Math.cos(angle), sinA = Math.sin(angle);
     const dot = offset.dot(up);
     const cross = new THREE.Vector3().crossVectors(up, offset);

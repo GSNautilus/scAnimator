@@ -9,7 +9,7 @@ Interactive WebGL visualization of single-cell RNA sequencing data. Points are r
 <p align="center">
   <img src="media/interface.png" width="720" alt="Viewer interface">
 </p>
-<p align="center"><a href="https://github.com/GSNautilus/scAnimator/releases/download/v1.0.1/umap_warp_demo.webm">Download demo video (51MB)</a></p>
+<p align="center"><a href="https://github.com/GSNautilus/scAnimator/releases/download/v1.0.0/umap_warp_demo.webm">Download demo video (51MB)</a></p>
 
 ## Features
 

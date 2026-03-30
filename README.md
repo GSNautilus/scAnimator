@@ -90,12 +90,6 @@ To regenerate the viewer data from the Seurat object:
    # See inline script in build_viewer.py header comments
    ```
 
-## Dataset
-
-Neural scRNAseq data: 45,386 cells, 28,134 genes, 4 samples (B18D, B18V, C2D, C2V), dorsal/ventral regions, 13 cell types identified by scType:
-
-- Radial glial cells, Dopaminergic neurons, Schwann precursor cells, Neuroepithelial cells, Glutamatergic neurons, Oligodendrocyte precursor cells, Microglial cells, Immature neurons, Endothelial cells, Neuroblasts, Myelinating Schwann cells, Cluster 21, Cluster 22
-
 ## License
 
 MIT

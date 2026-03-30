@@ -42,7 +42,7 @@
                      Colorbar shown in bottom-right for colormap mode
     Autocomplete   - Matches sorted by expression rank from gene_ranks.json
                      Shows rank annotation like "#42/28134"
-    Animation      - requestAnimationFrame loop with FPS limiter (bypass during rec)
+    Animation      - requestAnimationFrame loop with debt-accumulator FPS limiter (bypass during rec)
                      Accumulator-based frame stepping with configurable speed
     360 rotation   - Rodrigues rotation around camera's current up vector
     Recording      - captureStream(0) + MediaRecorder. Stream/track stored once at
@@ -51,7 +51,7 @@
 
   UI LAYOUT
     Top center     - n_neighbors label
-    Left panel     - "scAnimator / v1.0.0" header, then:
+    Left panel     - "scAnimator / v1.0.1" header, then:
                      Color By dropdown, Filter section (column selector + checkboxes),
                      Gene Expression (autocomplete + mapping + colormap selectors),
                      Sliders: brightness, bloom, point size, trail length
@@ -251,7 +251,7 @@
 
 <div id="panel" style="display:none">
   <h3>scAnimator</h3>
-  <div class="panel-subtitle">v1.0.0</div>
+  <div class="panel-subtitle">v1.0.1</div>
 
   <div class="panel-section">
     <div class="panel-label">Color By</div>
@@ -331,9 +331,9 @@
   <button id="btn-speed" title="Cycle speed">1x</button>
   <button id="btn-rotate" title="Toggle 360 rotation">360</button>
   <select id="fps-limit" title="Frame rate limit">
-    <option value="0">Unlocked</option>
+    <option value="0" selected>Native</option>
     <option value="30">30 fps</option>
-    <option value="60" selected>60 fps</option>
+    <option value="60">60 fps</option>
     <option value="120">120 fps</option>
     <option value="144">144 fps</option>
   </select>
@@ -941,18 +941,22 @@ btnRotate.addEventListener('click', () => {
 });
 
 // ── FPS limiter ──
-let fpsLimit = 60;
-let fpsInterval = 1000 / 60;
+let fpsLimit = 0;
+let fpsInterval = 0;
+let fpsDebt = 0;
 const fpsLimitSelect = document.getElementById('fps-limit');
+fpsLimitSelect.value = '0';  // ensure Native is selected on init
+
 fpsLimitSelect.addEventListener('change', () => {
   fpsLimit = parseInt(fpsLimitSelect.value);
   fpsInterval = fpsLimit > 0 ? 1000 / fpsLimit : 0;
+  fpsDebt = 0;
 });
 
 // FPS counter
 const fpsCounterEl = document.getElementById('fps-counter');
-let fpsFrames = 0;
-let fpsLastSample = performance.now();
+let renderFrames = 0;
+let renderLastSample = performance.now();
 
 const paramLabel = document.getElementById('param-label');
 const slider = document.getElementById('slider');
@@ -1096,26 +1100,36 @@ setTimeout(() => {
 }, 300);
 
 // ── Render loop ──
-let lastTime = performance.now();
-let lastRenderTime = 0;
+let lastTickTime = performance.now();
+let lastRenderTime = performance.now();
 
 function animate(now) {
   requestAnimationFrame(animate);
 
   // FPS limiting (bypass during recording)
-  if (!isRecording && fpsLimit > 0 && (now - lastRenderTime) < fpsInterval) return;
+  const tickDelta = now - lastTickTime;
+  lastTickTime = now;
+  if (!isRecording && fpsInterval > 0) {
+    fpsDebt += tickDelta;
+    if (fpsDebt < fpsInterval) return;
+    fpsDebt -= fpsInterval;
+    // Clamp to prevent catch-up spiral after tab-away
+    if (fpsDebt > fpsInterval) fpsDebt = 0;
+  }
+  const dt = (now - lastRenderTime) / 1000;
   lastRenderTime = now;
 
-  const dt = (now - lastTime) / 1000;
-  lastTime = now;
-
-  // FPS counter
-  fpsFrames++;
-  if (now - fpsLastSample >= 500) {
-    const fps = fpsFrames / ((now - fpsLastSample) / 1000);
-    fpsCounterEl.textContent = Math.round(fps) + ' fps';
-    fpsFrames = 0;
-    fpsLastSample = now;
+  // FPS counter (counts rendered frames)
+  renderFrames++;
+  if (now - renderLastSample >= 500) {
+    const fps = renderFrames / ((now - renderLastSample) / 1000);
+    if (fpsLimit > 0) {
+      fpsCounterEl.textContent = Math.round(fps) + ' (' + fpsLimit + ') fps';
+    } else {
+      fpsCounterEl.textContent = Math.round(fps) + ' fps';
+    }
+    renderFrames = 0;
+    renderLastSample = now;
   }
 
   if (playing) {

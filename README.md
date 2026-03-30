@@ -1,8 +1,18 @@
-# scRNAseq 3D UMAP Warp Viewer
+<p align="center">
+  <img src="media/logo.png" width="720" alt="scAnimator">
+</p>
+
+# scAnimator
 
 Interactive WebGL visualization of single-cell RNA sequencing data. Points are rendered as glowing light sources on a black background, with continuous UMAP warping that smoothly interpolates between different embedding parameterizations.
 
-![Viewer Screenshot](docs/screenshot.png)
+<p align="center">
+  <video src="https://github.com/GSNautilus/scAnimator/raw/master/media/umap_warp_demo_720p.webm" autoplay loop muted playsinline width="720"></video>
+</p>
+
+<p align="center">
+  <img src="media/interface.png" width="720" alt="Viewer interface">
+</p>
 
 ## Features
 

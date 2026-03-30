@@ -21,6 +21,9 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 
+# Original uncompressed media
+media/umap_warp_demo.webm
+
 # OS
 .DS_Store
 Thumbs.db

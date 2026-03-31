@@ -51,7 +51,7 @@
 
   UI LAYOUT
     Top center     - n_neighbors label
-    Left panel     - "scAnimator / v1.0.6" header, then:
+    Left panel     - "scAnimator / v1.0.7" header, then:
                      Color By dropdown, Filter section (column selector + checkboxes),
                      Gene Expression (autocomplete + mapping + colormap selectors),
                      Sliders: brightness, bloom, point size, trail length
@@ -280,7 +280,7 @@
 
 <div id="panel" style="display:none">
   <h3>scAnimator</h3>
-  <div class="panel-subtitle">v1.0.6</div>
+  <div class="panel-subtitle">v1.0.7</div>
 
   <div class="panel-group collapsed">
     <div class="panel-group-header" data-toggle="group">
@@ -395,6 +395,9 @@
   <label style="display:flex;align-items:center;gap:4px;font-size:12px;opacity:0.7;cursor:pointer;user-select:none">
     <input type="checkbox" id="rec-hud" checked style="accent-color:#888;margin:0;cursor:pointer"> Record Legend
   </label>
+  <label style="display:flex;align-items:center;gap:4px;font-size:12px;opacity:0.7;cursor:pointer;user-select:none">
+    <input type="checkbox" id="rec-freeze" style="accent-color:#888;margin:0;cursor:pointer"> Freeze Morph
+  </label>
   <select id="rec-mode" style="background:rgba(0,0,0,0.5);color:#ccc;border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:2px 4px;font-size:12px;cursor:pointer">
     <option value="webm">WebM Video</option>
     <option value="frames">PNG Frames</option>
@@ -404,7 +407,14 @@
     <option value="2k">2K (2160px)</option>
     <option value="4k">4K (3840px)</option>
   </select>
-  <button id="btn-record">Record Loop</button>
+  <select id="rec-loops" style="background:rgba(0,0,0,0.5);color:#ccc;border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:2px 4px;font-size:12px;cursor:pointer">
+    <option value="1">1 Loop</option>
+    <option value="2">2 Loops</option>
+    <option value="3">3 Loops</option>
+    <option value="5">5 Loops</option>
+    <option value="0">Manual Stop</option>
+  </select>
+  <button id="btn-record">Record</button>
 </div>
 
 <div id="util-buttons" style="display:none">
@@ -658,13 +668,14 @@ function ensureTracerFrames(count) {
 
 const fsQuadGeo = new THREE.PlaneGeometry(2, 2);
 const fadeMaterial = new THREE.ShaderMaterial({
-  uniforms: { tOld: { value: null }, tNew: { value: null }, uFade: { value: 0.0 } },
+  uniforms: { tOld: { value: null }, tNew: { value: null }, uFade: { value: 0.0 }, uDt: { value: 1.0/60.0 } },
   vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
   fragmentShader: `
-    uniform sampler2D tOld; uniform sampler2D tNew; uniform float uFade;
+    uniform sampler2D tOld; uniform sampler2D tNew; uniform float uFade; uniform float uDt;
     varying vec2 vUv;
     void main() {
-      vec4 old = texture2D(tOld, vUv) * uFade;
+      float fade = pow(uFade, uDt * 60.0);
+      vec4 old = texture2D(tOld, vUv) * fade;
       vec4 nw = texture2D(tNew, vUv);
       gl_FragColor = max(old, nw);
     }
@@ -1065,7 +1076,6 @@ let accumulator = 0;
 
 // ── 360 rotation ──
 let rotating360 = false;
-const rotateSpeed360 = 0.3; // radians per second
 
 const btnRotate = document.getElementById('btn-rotate');
 btnRotate.addEventListener('click', () => {
@@ -1216,6 +1226,10 @@ let recSquareInterval = null;
 // 360 sync during recording: total angle to rotate = 2π, spread over nFrames
 let recRotationStart = null;  // camera offset vector at rec start
 let recFrameCount = 0;        // frames rendered since rec started
+let recLoopTarget = 1;        // how many loops to record (0 = manual stop)
+let recLoopCount = 0;         // loops completed so far
+let recFreeze = false;        // freeze morph: record rotation only
+let recRotationAngle = 0;     // accumulated rotation for freeze mode
 // Frame export state
 let frameExportZip = null;
 let frameExportCount = 0;
@@ -1302,6 +1316,10 @@ function startRecording() {
   // Save camera offset for synced 360 rotation
   recRotationStart = camera.position.clone().sub(orbitControls.target);
   recFrameCount = 0;
+  recLoopTarget = parseInt(document.getElementById('rec-loops').value);
+  recLoopCount = 0;
+  recFreeze = document.getElementById('rec-freeze').checked;
+  recRotationAngle = 0;
 
   if (recMode === 'webm') {
     const recFps = 60;
@@ -1388,7 +1406,9 @@ btnRecord.addEventListener('click', () => {
   else startRecording();
 });
 document.getElementById('rec-mode').addEventListener('change', (e) => {
-  document.getElementById('rec-res').style.display = e.target.value === 'frames' ? '' : 'none';
+  const isFrames = e.target.value === 'frames';
+  document.getElementById('rec-res').style.display = isFrames ? '' : 'none';
+  if (isFrames) document.getElementById('rec-res').selectedIndex = 0;
 });
 
 
@@ -1437,8 +1457,11 @@ let lastRenderTime = performance.now();
 function animate(now) {
   requestAnimationFrame(animate);
 
-  const dt = (now - lastRenderTime) / 1000;
+  let dt = (now - lastRenderTime) / 1000;
   lastRenderTime = now;
+
+  // Lock to fixed timestep during frame export so animation speed is consistent
+  if (isRecording && recMode === 'frames') dt = 1 / 30;
 
   // FPS counter (counts rendered frames)
   renderFrames++;
@@ -1449,7 +1472,7 @@ function animate(now) {
     renderLastSample = now;
   }
 
-  if (playing) {
+  if (playing && !(isRecording && recFreeze)) {
     accumulator += dt * speed * 30;
     while (accumulator >= 1) {
       accumulator -= 1;
@@ -1459,19 +1482,32 @@ function animate(now) {
 
       if (isRecording) {
         recFrameCount++;
-        // Stop precisely when we've completed one full loop
+        // Stop when target loop count is reached (0 = manual stop only)
         if (currentFrame === 0 && prevFrame === nFrames - 1) {
-          stopRecording();
-          break;
+          recLoopCount++;
+          if (recLoopTarget > 0 && recLoopCount >= recLoopTarget) {
+            stopRecording();
+            break;
+          }
         }
       }
     }
   }
 
+  // Freeze morph: track rotation and stop after N full rotations
+  if (isRecording && recFreeze && rotating360) {
+    const rotSpeed = (2 * Math.PI * speed * 30 / nFrames) * dt;
+    recRotationAngle += rotSpeed;
+    const targetAngle = 2 * Math.PI * (recLoopTarget > 0 ? recLoopTarget : 1);
+    if (recLoopTarget > 0 && recRotationAngle >= targetAngle) {
+      stopRecording();
+    }
+  }
+
   // 360 auto-rotation around camera's current up axis
   if (isRecording && rotating360 && recRotationStart) {
-    // Sync rotation to frame progress: one full 360 over nFrames
-    const angle = (2 * Math.PI * currentFrame) / nFrames;
+    // Sync rotation to animation: one full 360 per loop
+    const angle = recFreeze ? recRotationAngle : (2 * Math.PI * currentFrame) / nFrames;
     const up = camera.up.clone().normalize();
     const offset = recRotationStart.clone();
     const cosA = Math.cos(angle), sinA = Math.sin(angle);
@@ -1480,7 +1516,8 @@ function animate(now) {
     offset.multiplyScalar(cosA).add(cross.multiplyScalar(sinA)).add(up.multiplyScalar(dot * (1 - cosA)));
     camera.position.copy(orbitControls.target).add(offset);
   } else if (rotating360) {
-    const angle = rotateSpeed360 * dt;
+    // Sync rotation to animation speed: one full 360 per loop
+    const angle = (2 * Math.PI * speed * 30 / nFrames) * dt;
     const up = camera.up.clone().normalize();
     const offset = camera.position.clone().sub(orbitControls.target);
     const cosA = Math.cos(angle), sinA = Math.sin(angle);
@@ -1516,6 +1553,7 @@ function animate(now) {
 
     // Build the composite: start with the faded accumulation buffer
     if (trailFade >= 0.01) {
+      fadeMaterial.uniforms.uDt.value = dt;
       fadeMaterial.uniforms.tOld.value = trailA.texture;
       fadeMaterial.uniforms.tNew.value = freshTexture;
       renderer.setRenderTarget(trailB);

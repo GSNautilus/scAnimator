@@ -107,6 +107,24 @@
   #panel .panel-subtitle {
     font-size: 12px; opacity: 0.25; letter-spacing: 1px; margin-bottom: 12px;
   }
+  .panel-group { margin-bottom: 12px; }
+  .panel-group:last-child { margin-bottom: 0; }
+  .panel-group-header {
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer; user-select: none; padding: 4px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.25); margin-bottom: 8px;
+  }
+  .panel-group-header:hover { opacity: 0.9; }
+  .panel-group-title {
+    font-size: 11px; opacity: 0.5; text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .panel-group-arrow {
+    font-size: 9px; opacity: 0.35; transition: transform 0.2s;
+  }
+  .panel-group.collapsed .panel-group-arrow { transform: rotate(-90deg); }
+  .panel-group.collapsed .panel-group-body { display: none; }
+  .panel-group-body { }
   .panel-section { margin-bottom: 16px; }
   .panel-section:last-child { margin-bottom: 0; }
   .panel-label {
@@ -264,65 +282,85 @@
   <h3>scAnimator</h3>
   <div class="panel-subtitle">v1.0.4</div>
 
-  <div class="panel-section">
-    <div class="panel-label">Color By</div>
-    <select class="panel-select" id="color-by"></select>
-  </div>
-
-  <div class="panel-section">
-    <div class="panel-label">Filter</div>
-    <select class="panel-select" id="filter-col"></select>
-    <div id="filter-checkboxes"></div>
-    <div class="filter-btns">
-      <button id="filter-all">All</button>
-      <button id="filter-none">None</button>
-      <button id="filter-invert">Invert</button>
+  <div class="panel-group collapsed">
+    <div class="panel-group-header" data-toggle="group">
+      <span class="panel-group-title">Color By</span>
+      <span class="panel-group-arrow">&#9660;</span>
+    </div>
+    <div class="panel-group-body">
+      <select class="panel-select" id="color-by"></select>
     </div>
   </div>
 
-  <div class="panel-section">
-    <div class="panel-label">Gene Expression</div>
-    <div class="gene-input-wrap">
-      <input type="text" id="gene-input" placeholder="Type gene symbol..." autocomplete="off">
-      <div id="gene-dropdown"></div>
+  <div class="panel-group collapsed">
+    <div class="panel-group-header" data-toggle="group">
+      <span class="panel-group-title">Filter</span>
+      <span class="panel-group-arrow">&#9660;</span>
     </div>
-    <select class="gene-mapping-select" id="gene-mapping">
-      <option value="colormap">Map to: Colormap</option>
-      <option value="brightness">Map to: Brightness</option>
-      <option value="size">Map to: Point Size</option>
-    </select>
-    <select class="gene-mapping-select" id="gene-colormap" style="margin-top:4px">
-      <option value="viridis">Viridis</option>
-      <option value="magma">Magma</option>
-      <option value="plasma">Plasma</option>
-      <option value="inferno">Inferno</option>
-    </select>
-    <div class="gene-status" id="gene-status"></div>
-    <button class="btn-clear" id="gene-clear">Clear gene</button>
+    <div class="panel-group-body">
+      <select class="panel-select" id="filter-col"></select>
+      <div id="filter-checkboxes"></div>
+      <div class="filter-btns">
+        <button id="filter-all">All</button>
+        <button id="filter-none">None</button>
+        <button id="filter-invert">Invert</button>
+      </div>
+    </div>
   </div>
 
-  <div class="panel-section">
-    <div class="panel-label">Point Brightness</div>
-    <input type="range" class="panel-slider" id="brightness" min="0.2" max="4.0" step="0.1" value="1.8">
-    <div class="slider-value" id="brightness-val">1.8</div>
+  <div class="panel-group collapsed">
+    <div class="panel-group-header" data-toggle="group">
+      <span class="panel-group-title">Gene Expression</span>
+      <span class="panel-group-arrow">&#9660;</span>
+    </div>
+    <div class="panel-group-body">
+      <div class="gene-input-wrap">
+        <input type="text" id="gene-input" placeholder="Type gene symbol..." autocomplete="off">
+        <div id="gene-dropdown"></div>
+      </div>
+      <select class="gene-mapping-select" id="gene-mapping">
+        <option value="colormap">Map to: Colormap</option>
+        <option value="brightness">Map to: Brightness</option>
+        <option value="size">Map to: Point Size</option>
+      </select>
+      <select class="gene-mapping-select" id="gene-colormap" style="margin-top:4px">
+        <option value="viridis">Viridis</option>
+        <option value="magma">Magma</option>
+        <option value="plasma">Plasma</option>
+        <option value="inferno">Inferno</option>
+      </select>
+      <div class="gene-status" id="gene-status"></div>
+      <button class="btn-clear" id="gene-clear">Clear gene</button>
+    </div>
   </div>
 
-  <div class="panel-section">
-    <div class="panel-label">Bloom Strength</div>
-    <input type="range" class="panel-slider" id="bloom-strength" min="0.0" max="4.0" step="0.1" value="1.5">
-    <div class="slider-value" id="bloom-val">1.5</div>
-  </div>
-
-  <div class="panel-section">
-    <div class="panel-label">Point Size</div>
-    <input type="range" class="panel-slider" id="point-size" min="2" max="40" step="1" value="8">
-    <div class="slider-value" id="size-val">8</div>
-  </div>
-
-  <div class="panel-section">
-    <div class="panel-label">Trail Length</div>
-    <input type="range" class="panel-slider" id="trail-length" min="0" max="0.98" step="0.01" value="0.0">
-    <div class="slider-value" id="trail-val">Off</div>
+  <div class="panel-group collapsed">
+    <div class="panel-group-header" data-toggle="group">
+      <span class="panel-group-title">Render Settings</span>
+      <span class="panel-group-arrow">&#9660;</span>
+    </div>
+    <div class="panel-group-body">
+      <div class="panel-section">
+        <div class="panel-label">Point Intensity</div>
+        <input type="range" class="panel-slider" id="brightness" min="0.05" max="1.0" step="0.05" value="1.0">
+        <div class="slider-value" id="brightness-val">1.0</div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-label">Bloom Strength</div>
+        <input type="range" class="panel-slider" id="bloom-strength" min="0.0" max="4.0" step="0.1" value="0.0">
+        <div class="slider-value" id="bloom-val">0.0</div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-label">Point Size</div>
+        <input type="range" class="panel-slider" id="point-size" min="2" max="40" step="1" value="2">
+        <div class="slider-value" id="size-val">2</div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-label">Trail Length</div>
+        <input type="range" class="panel-slider" id="trail-length" min="0" max="0.98" step="0.01" value="0.0">
+        <div class="slider-value" id="trail-val">Off</div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -342,7 +380,7 @@
   <button id="btn-speed" title="Cycle speed">1x</button>
   <button id="btn-rotate" title="Toggle 360 rotation">360</button>
   <label style="display:flex;align-items:center;gap:4px;font-size:12px;opacity:0.7;cursor:pointer;user-select:none">
-    <input type="checkbox" id="rec-square" style="accent-color:#888;margin:0;cursor:pointer"> Square
+    <input type="checkbox" id="rec-square" checked style="accent-color:#888;margin:0;cursor:pointer"> Square Recording
   </label>
   <label style="display:flex;align-items:center;gap:4px;font-size:12px;opacity:0.7;cursor:pointer;user-select:none">
     <input type="checkbox" id="rec-hud" checked style="accent-color:#888;margin:0;cursor:pointer"> Record Legend
@@ -527,8 +565,7 @@ camera.position.set(0, 0, 14);
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.2;
+renderer.toneMapping = THREE.NoToneMapping;
 renderer.getContext().drawingBufferColorSpace = 'srgb';
 document.body.appendChild(renderer.domElement);
 
@@ -546,7 +583,7 @@ orbitControls.target.set(0, 0, 0);
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(
-  new THREE.Vector2(innerWidth, innerHeight), 1.5, 0.4, 0.2
+  new THREE.Vector2(innerWidth, innerHeight), 0.0, 1.0, 0.1
 );
 composer.addPass(bloom);
 composer.renderToScreen = false;
@@ -611,13 +648,13 @@ geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 geometry.setAttribute('aColor', new THREE.BufferAttribute(colorsArr, 3));
 geometry.setAttribute('aSize', new THREE.BufferAttribute(sizesArr, 1));
 
-let basePtSize = 8.0;
+let basePtSize = 2.0;
 
 const material = new THREE.ShaderMaterial({
   transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   uniforms: {
     uSize: { value: basePtSize * pr },
-    uBrightness: { value: 1.8 },
+    uBrightness: { value: 1.0 },
   },
   vertexShader: `
     attribute vec3 aColor;
@@ -642,7 +679,8 @@ const material = new THREE.ShaderMaterial({
       if (d > 1.0) discard;
       float intensity = 1.0 - d * d;
       intensity = pow(intensity, 1.5);
-      gl_FragColor = vec4(vColor * intensity * uBrightness, intensity * 0.85 * vAlpha);
+      float glow = intensity * uBrightness;
+      gl_FragColor = vec4(vColor * glow, glow * 0.85 * vAlpha);
     }
   `,
 });
@@ -1169,6 +1207,13 @@ setTimeout(() => {
   document.getElementById('controls').style.display = '';
   document.getElementById('util-buttons').style.display = '';
 }, 300);
+
+// ── Collapsible panel groups ──
+for (const hdr of document.querySelectorAll('[data-toggle="group"]')) {
+  hdr.addEventListener('click', () => {
+    hdr.parentElement.classList.toggle('collapsed');
+  });
+}
 
 // ── Hide UI / Fullscreen buttons ──
 const uiTargets = ['panel', 'legend', 'controls', 'param-label', 'gene-colorbar', 'fps-counter'];

@@ -51,7 +51,7 @@
 
   UI LAYOUT
     Top center     - n_neighbors label
-    Left panel     - "scAnimator / v1.0.5" header, then:
+    Left panel     - "scAnimator / v1.0.6" header, then:
                      Color By dropdown, Filter section (column selector + checkboxes),
                      Gene Expression (autocomplete + mapping + colormap selectors),
                      Sliders: brightness, bloom, point size, trail length
@@ -280,7 +280,7 @@
 
 <div id="panel" style="display:none">
   <h3>scAnimator</h3>
-  <div class="panel-subtitle">v1.0.5</div>
+  <div class="panel-subtitle">v1.0.6</div>
 
   <div class="panel-group collapsed">
     <div class="panel-group-header" data-toggle="group">
@@ -356,9 +356,19 @@
         <div class="slider-value" id="size-val">2</div>
       </div>
       <div class="panel-section">
-        <div class="panel-label">Trail Length</div>
-        <input type="range" class="panel-slider" id="trail-length" min="0" max="0.98" step="0.01" value="0.0">
-        <div class="slider-value" id="trail-val">Off</div>
+        <div class="panel-label">Persistence</div>
+        <input type="range" class="panel-slider" id="decay-time" min="0" max="100" step="1" value="0">
+        <div class="slider-value" id="decay-val">Off</div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-label">Depth of Field</div>
+        <input type="range" class="panel-slider" id="dof-amount" min="0" max="100" step="1" value="0">
+        <div class="slider-value" id="dof-val">Off</div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-label">Tracer Length</div>
+        <input type="range" class="panel-slider" id="tracer-length" min="0" max="180" step="1" value="0">
+        <div class="slider-value" id="tracer-val">Off</div>
       </div>
     </div>
   </div>
@@ -385,6 +395,15 @@
   <label style="display:flex;align-items:center;gap:4px;font-size:12px;opacity:0.7;cursor:pointer;user-select:none">
     <input type="checkbox" id="rec-hud" checked style="accent-color:#888;margin:0;cursor:pointer"> Record Legend
   </label>
+  <select id="rec-mode" style="background:rgba(0,0,0,0.5);color:#ccc;border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:2px 4px;font-size:12px;cursor:pointer">
+    <option value="webm">WebM Video</option>
+    <option value="frames">PNG Frames</option>
+  </select>
+  <select id="rec-res" style="display:none;background:rgba(0,0,0,0.5);color:#ccc;border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:2px 4px;font-size:12px;cursor:pointer">
+    <option value="native">Native</option>
+    <option value="2k">2K (2160px)</option>
+    <option value="4k">4K (3840px)</option>
+  </select>
   <button id="btn-record">Record Loop</button>
 </div>
 
@@ -393,6 +412,7 @@
   <button id="btn-fullscreen" title="Toggle fullscreen">&#x26F6;</button>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script type="importmap">
 {
   "imports": {
@@ -408,6 +428,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
 
 // ── Colormaps (256-step LUTs) ──
 function buildLUT(stops) {
@@ -580,12 +601,37 @@ orbitControls.enablePan = false;
 orbitControls.target.set(0, 0, 0);
 
 // ── Bloom ──
-const composer = new EffectComposer(renderer);
+const composerRT = new THREE.WebGLRenderTarget(innerWidth, innerHeight, {
+  minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+  format: THREE.RGBAFormat, type: THREE.HalfFloatType,
+});
+const composer = new EffectComposer(renderer, composerRT);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(
   new THREE.Vector2(innerWidth, innerHeight), 0.0, 1.0, 0.1
 );
 composer.addPass(bloom);
+
+// Patch bloom blur kernels to reduce square artifacts
+// Default kernels [3,5,7,9,11] are too small — increase to [7,11,15,19,23]
+const patchedKernels = [7, 11, 15, 19, 23];
+for (let i = 0; i < bloom.separableBlurMaterials.length; i++) {
+  const mat = bloom.separableBlurMaterials[i];
+  const kr = patchedKernels[i];
+  const coeffs = new Array(kr);
+  for (let j = 0; j < kr; j++) {
+    coeffs[j] = 0.39894 * Math.exp(-0.5 * j * j / (kr * kr)) / kr;
+  }
+  mat.defines['KERNEL_RADIUS'] = kr;
+  mat.uniforms['gaussianCoefficients'].value = coeffs;
+  mat.needsUpdate = true;
+}
+
+const bokeh = new BokehPass(scene, camera, {
+  focus: 14.0, aperture: 0.0, maxblur: 0.1
+});
+bokeh.enabled = false;
+composer.addPass(bokeh);
 composer.renderToScreen = false;
 
 // ── Trail accumulation ──
@@ -596,6 +642,19 @@ const rtParams = {
 const pr = Math.min(devicePixelRatio, 2);
 let trailA = new THREE.WebGLRenderTarget(innerWidth * pr, innerHeight * pr, rtParams);
 let trailB = new THREE.WebGLRenderTarget(innerWidth * pr, innerHeight * pr, rtParams);
+
+// Ring buffer for tracer hold frames
+const MAX_TRACER_FRAMES = 180;
+let tracerFrames = [];  // array of WebGLRenderTargets
+let tracerHead = 0;     // write index
+let tracerCount = 0;    // how many hold frames to keep (0 = off)
+
+function ensureTracerFrames(count) {
+  const w = innerWidth * pr, h = innerHeight * pr;
+  while (tracerFrames.length < count) {
+    tracerFrames.push(new THREE.WebGLRenderTarget(w, h, rtParams));
+  }
+}
 
 const fsQuadGeo = new THREE.PlaneGeometry(2, 2);
 const fadeMaterial = new THREE.ShaderMaterial({
@@ -609,6 +668,16 @@ const fadeMaterial = new THREE.ShaderMaterial({
       vec4 nw = texture2D(tNew, vUv);
       gl_FragColor = max(old, nw);
     }
+  `,
+});
+// Material for compositing tracer hold frames (max blend, no fade)
+const maxBlendMaterial = new THREE.ShaderMaterial({
+  uniforms: { tA: { value: null }, tB: { value: null } },
+  vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tA; uniform sampler2D tB;
+    varying vec2 vUv;
+    void main() { gl_FragColor = max(texture2D(tA, vUv), texture2D(tB, vUv)); }
   `,
 });
 const fsQuad = new THREE.Mesh(fsQuadGeo, fadeMaterial);
@@ -634,7 +703,8 @@ const outputMaterial = new THREE.ShaderMaterial({
 });
 const outputQuad = new THREE.Mesh(fsQuadGeo.clone(), outputMaterial);
 const outputScene = new THREE.Scene(); outputScene.add(outputQuad);
-let trailFade = 0.0;
+let trailFade = 0.0;  // actual fade value sent to shader (0–0.99)
+let decaySlider = 0;  // raw slider value (0–100)
 
 // ── Point cloud ──
 const geometry = new THREE.BufferGeometry();
@@ -1033,15 +1103,52 @@ document.getElementById('bloom-strength').addEventListener('input', (e) => {
   bloom.strength = parseFloat(e.target.value);
   document.getElementById('bloom-val').textContent = bloom.strength.toFixed(1);
 });
+document.getElementById('dof-amount').addEventListener('input', (e) => {
+  const v = parseInt(e.target.value);
+  if (v === 0) {
+    bokeh.enabled = false;
+    document.getElementById('dof-val').textContent = 'Off';
+  } else {
+    bokeh.enabled = true;
+    // Remap 1–100 to aperture via cubic curve for smooth gradation
+    const t = v / 100;
+    bokeh.uniforms['aperture'].value = 0.00005 + 0.005 * t * t * t;
+    // Focus at the orbit target distance
+    bokeh.uniforms['focus'].value = camera.position.distanceTo(orbitControls.target);
+    document.getElementById('dof-val').textContent = v;
+  }
+});
 document.getElementById('point-size').addEventListener('input', (e) => {
   basePtSize = parseFloat(e.target.value);
   material.uniforms.uSize.value = basePtSize * pr;
   document.getElementById('size-val').textContent = basePtSize.toFixed(0);
 });
-document.getElementById('trail-length').addEventListener('input', (e) => {
-  trailFade = parseFloat(e.target.value);
+document.getElementById('decay-time').addEventListener('input', (e) => {
+  decaySlider = parseInt(e.target.value);
+  // Remap: slider 0 = off, slider 1–100 maps to fade 0.85–0.99 via power curve
+  if (decaySlider === 0) {
+    trailFade = 0.0;
+  } else {
+    const t = decaySlider / 100;           // 0.01 – 1.0
+    trailFade = 0.85 + 0.145 * Math.pow(t, 0.5);  // 0.85 – 0.995, sqrt curve
+  }
   fadeMaterial.uniforms.uFade.value = trailFade;
-  document.getElementById('trail-val').textContent = trailFade < 0.01 ? 'Off' : trailFade.toFixed(2);
+  document.getElementById('decay-val').textContent = decaySlider === 0 ? 'Off' : decaySlider;
+});
+document.getElementById('tracer-length').addEventListener('input', (e) => {
+  tracerCount = parseInt(e.target.value);
+  if (tracerCount > 0) ensureTracerFrames(tracerCount);
+  document.getElementById('tracer-val').textContent = tracerCount === 0 ? 'Off' : tracerCount;
+});
+
+// Force all sliders and dropdowns to their default values on load (prevents browser caching)
+document.querySelectorAll('.panel-slider').forEach(s => {
+  s.value = s.defaultValue;
+  s.dispatchEvent(new Event('input'));
+});
+document.querySelectorAll('select').forEach(s => {
+  s.selectedIndex = 0;
+  s.dispatchEvent(new Event('change'));
 });
 
 btnPlay.addEventListener('click', () => {
@@ -1099,6 +1206,7 @@ function drawRecHud(ctx, w, h) {
 
 // ── Recording ──
 let isRecording = false;
+let recMode = 'webm';  // 'webm' or 'frames'
 let mediaRecorder = null;
 let recordedChunks = [];
 let recStream = null;
@@ -1108,21 +1216,27 @@ let recSquareInterval = null;
 // 360 sync during recording: total angle to rotate = 2π, spread over nFrames
 let recRotationStart = null;  // camera offset vector at rec start
 let recFrameCount = 0;        // frames rendered since rec started
+// Frame export state
+let frameExportZip = null;
+let frameExportCount = 0;
+let recWantSquare = false;
+let recWantHud = false;
+// Resolution override state
+let recSavedWidth = 0;
+let recSavedHeight = 0;
+let recResOverride = false;
 
 const btnRecord = document.getElementById('btn-record');
 const recIndicator = document.getElementById('rec-indicator');
 
-function startRecording() {
-  const fmt = 'webm';
-  const wantSquare = document.getElementById('rec-square').checked;
-  const recFps = 60;
-
-  // Always capture through a 2D canvas intermediary so drawImage applies
-  // proper sRGB color space conversion (captureStream on WebGL skips this)
+// Shared: set up the intermediary capture canvas
+function setupCaptureCanvas() {
   const srcW = renderer.domElement.width;
   const srcH = renderer.domElement.height;
+  recWantSquare = document.getElementById('rec-square').checked;
+  recWantHud = document.getElementById('rec-hud').checked;
   let capW, capH, sx, sy;
-  if (wantSquare) {
+  if (recWantSquare) {
     const side = Math.min(srcW, srcH);
     capW = side; capH = side;
     sx = Math.floor((srcW - side) / 2);
@@ -1135,26 +1249,49 @@ function startRecording() {
   recSquareCanvas.width = capW;
   recSquareCanvas.height = capH;
   recSquareCtx = recSquareCanvas.getContext('2d');
-  const recHud = document.getElementById('rec-hud').checked;
-  recSquareInterval = setInterval(() => {
-    recSquareCtx.drawImage(renderer.domElement, sx, sy, capW, capH, 0, 0, capW, capH);
-    if (recHud) drawRecHud(recSquareCtx, capW, capH);
-  }, 1000 / recFps);
-  let sourceStream = recSquareCanvas.captureStream(recFps);
-  recStream = sourceStream;
+  return { capW, capH, sx, sy };
+}
 
-  const mimeType = 'video/webm;codecs=vp8';
+// Capture current frame to the intermediary canvas
+function captureFrameToCanvas(sx, sy, capW, capH) {
+  recSquareCtx.drawImage(renderer.domElement, sx, sy, capW, capH, 0, 0, capW, capH);
+  if (recWantHud) drawRecHud(recSquareCtx, capW, capH);
+}
 
-  recordedChunks = [];
-  mediaRecorder = new MediaRecorder(recStream, { mimeType, videoBitsPerSecond: 20000000 });
-  mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
-  mediaRecorder.onstop = () => {
-    const blob = new Blob(recordedChunks, { type: mimeType });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `umap_warp.${fmt}`;
-    a.click();
-  };
+function applyRecResolution() {
+  const res = document.getElementById('rec-res').value;
+  if (res === 'native') { recResOverride = false; return; }
+  const side = res === '4k' ? 3840 : 2160;
+  recSavedWidth = innerWidth;
+  recSavedHeight = innerHeight;
+  recResOverride = true;
+  renderer.setSize(side, side);
+  composer.setSize(side, side);
+  camera.aspect = 1;
+  camera.updateProjectionMatrix();
+  const pr = Math.min(devicePixelRatio, 2);
+  trailA.setSize(side * pr, side * pr);
+  trailB.setSize(side * pr, side * pr);
+  for (const rt of tracerFrames) rt.setSize(side * pr, side * pr);
+}
+
+function restoreRecResolution() {
+  if (!recResOverride) return;
+  recResOverride = false;
+  renderer.setSize(recSavedWidth, recSavedHeight);
+  composer.setSize(recSavedWidth, recSavedHeight);
+  camera.aspect = recSavedWidth / recSavedHeight;
+  camera.updateProjectionMatrix();
+  const pr = Math.min(devicePixelRatio, 2);
+  trailA.setSize(recSavedWidth * pr, recSavedHeight * pr);
+  trailB.setSize(recSavedWidth * pr, recSavedHeight * pr);
+  for (const rt of tracerFrames) rt.setSize(recSavedWidth * pr, recSavedHeight * pr);
+}
+
+function startRecording() {
+  recMode = document.getElementById('rec-mode').value;
+  if (recMode === 'frames') applyRecResolution();
+  const { capW, capH, sx, sy } = setupCaptureCanvas();
 
   // Reset animation to frame 0
   currentFrame = 0;
@@ -1166,25 +1303,82 @@ function startRecording() {
   recRotationStart = camera.position.clone().sub(orbitControls.target);
   recFrameCount = 0;
 
+  if (recMode === 'webm') {
+    const recFps = 60;
+    recSquareInterval = setInterval(() => {
+      captureFrameToCanvas(sx, sy, capW, capH);
+    }, 1000 / recFps);
+    let sourceStream = recSquareCanvas.captureStream(recFps);
+    recStream = sourceStream;
+
+    const mimeType = 'video/webm;codecs=vp9';
+    recordedChunks = [];
+    mediaRecorder = new MediaRecorder(recStream, { mimeType, videoBitsPerSecond: 20000000 });
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(recordedChunks, { type: mimeType });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'umap_warp.webm';
+      a.click();
+    };
+    mediaRecorder.start();
+  } else {
+    // Frame export mode — store capture geometry for use in captureExportFrame
+    frameExportZip = new JSZip();
+    frameExportCount = 0;
+    recSquareCanvas._capSx = sx;
+    recSquareCanvas._capSy = sy;
+    recSquareCanvas._capW = capW;
+    recSquareCanvas._capH = capH;
+  }
+
   isRecording = true;
   playing = true;
   btnPlay.textContent = 'Pause';
-  mediaRecorder.start();
   btnRecord.textContent = 'Stop Rec';
   btnRecord.classList.add('recording');
   recIndicator.style.display = 'block';
 }
 
+// Called from the render loop after each frame render during frame export
+function captureExportFrame() {
+  if (recMode !== 'frames' || !frameExportZip) return;
+  const { _capSx: sx, _capSy: sy, _capW: capW, _capH: capH } = recSquareCanvas;
+  captureFrameToCanvas(sx, sy, capW, capH);
+  const dataUrl = recSquareCanvas.toDataURL('image/png');
+  const base64 = dataUrl.split(',')[1];
+  const padded = String(frameExportCount).padStart(5, '0');
+  frameExportZip.file(`frame_${padded}.png`, base64, { base64: true });
+  frameExportCount++;
+}
+
 function stopRecording() {
   if (!isRecording) return;
   isRecording = false;
-  mediaRecorder.stop();
-  recStream = null;
-  if (recSquareInterval) { clearInterval(recSquareInterval); recSquareInterval = null; }
+
+  if (recMode === 'webm') {
+    mediaRecorder.stop();
+    recStream = null;
+    if (recSquareInterval) { clearInterval(recSquareInterval); recSquareInterval = null; }
+  } else {
+    // Generate and download the zip
+    btnRecord.textContent = 'Zipping...';
+    frameExportZip.generateAsync({ type: 'blob' }).then((blob) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'umap_warp_frames.zip';
+      a.click();
+      btnRecord.textContent = 'Record Loop';
+    });
+    frameExportZip = null;
+  }
+
   recSquareCanvas = null;
   recSquareCtx = null;
   recRotationStart = null;
-  btnRecord.textContent = 'Record Loop';
+  restoreRecResolution();
+  if (recMode === 'webm') btnRecord.textContent = 'Record Loop';
   btnRecord.classList.remove('recording');
   recIndicator.style.display = 'none';
 }
@@ -1192,6 +1386,9 @@ function stopRecording() {
 btnRecord.addEventListener('click', () => {
   if (isRecording) stopRecording();
   else startRecording();
+});
+document.getElementById('rec-mode').addEventListener('change', (e) => {
+  document.getElementById('rec-res').style.display = e.target.value === 'frames' ? '' : 'none';
 });
 
 
@@ -1295,21 +1492,68 @@ function animate(now) {
 
   orbitControls.update();
 
-  if (trailFade < 0.01) {
+  const trailsActive = trailFade >= 0.01 || tracerCount > 0;
+
+  if (!trailsActive) {
     composer.renderToScreen = true;
     composer.render();
   } else {
     composer.renderToScreen = false;
     composer.render();
-    fadeMaterial.uniforms.tOld.value = trailA.texture;
-    fadeMaterial.uniforms.tNew.value = composer.readBuffer.texture;
-    renderer.setRenderTarget(trailB);
-    renderer.render(fsScene, fsCamera);
+    const freshTexture = composer.readBuffer.texture;
+
+    // Store current frame in ring buffer if tracers are on
+    if (tracerCount > 0) {
+      renderer.setRenderTarget(tracerFrames[tracerHead]);
+      // Copy fresh frame into this slot via a simple blit
+      maxBlendMaterial.uniforms.tA.value = freshTexture;
+      maxBlendMaterial.uniforms.tB.value = freshTexture;
+      fsQuad.material = maxBlendMaterial;
+      renderer.render(fsScene, fsCamera);
+      fsQuad.material = fadeMaterial;
+      tracerHead = (tracerHead + 1) % tracerCount;
+    }
+
+    // Build the composite: start with the faded accumulation buffer
+    if (trailFade >= 0.01) {
+      fadeMaterial.uniforms.tOld.value = trailA.texture;
+      fadeMaterial.uniforms.tNew.value = freshTexture;
+      renderer.setRenderTarget(trailB);
+      fsQuad.material = fadeMaterial;
+      renderer.render(fsScene, fsCamera);
+    } else {
+      // No decay — just put the fresh frame into trailB
+      maxBlendMaterial.uniforms.tA.value = freshTexture;
+      maxBlendMaterial.uniforms.tB.value = freshTexture;
+      fsQuad.material = maxBlendMaterial;
+      renderer.setRenderTarget(trailB);
+      renderer.render(fsScene, fsCamera);
+      fsQuad.material = fadeMaterial;
+    }
+
+    // Max-blend all tracer hold frames on top of trailB
+    if (tracerCount > 0) {
+      for (let i = 0; i < tracerCount; i++) {
+        maxBlendMaterial.uniforms.tA.value = trailB.texture;
+        maxBlendMaterial.uniforms.tB.value = tracerFrames[i].texture;
+        fsQuad.material = maxBlendMaterial;
+        // Render into trailA as temp, then swap
+        renderer.setRenderTarget(trailA);
+        renderer.render(fsScene, fsCamera);
+        const sw = trailA; trailA = trailB; trailB = sw;
+      }
+      fsQuad.material = fadeMaterial;
+    }
+
+    // Output to screen with tonemapping
     outputMaterial.uniforms.tDiffuse.value = trailB.texture;
     renderer.setRenderTarget(null);
     renderer.render(outputScene, fsCamera);
     const tmp = trailA; trailA = trailB; trailB = tmp;
   }
+
+  // Capture PNG frame for export mode (after full render including trails)
+  if (isRecording && recMode === 'frames') captureExportFrame();
 
   // captureStream with auto frame rate — no manual requestFrame needed
 }
@@ -1325,6 +1569,7 @@ window.addEventListener('resize', () => {
   const pr = Math.min(devicePixelRatio, 2);
   trailA.setSize(innerWidth * pr, innerHeight * pr);
   trailB.setSize(innerWidth * pr, innerHeight * pr);
+  for (const rt of tracerFrames) rt.setSize(innerWidth * pr, innerHeight * pr);
 });
 </script>
 </body>

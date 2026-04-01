@@ -51,7 +51,7 @@
 
   UI LAYOUT
     Top center     - n_neighbors label
-    Left panel     - "scAnimator / v1.0.7" header, then:
+    Left panel     - "scAnimator / v1.0.8" header, then:
                      Color By dropdown, Filter section (column selector + checkboxes),
                      Gene Expression (autocomplete + mapping + colormap selectors),
                      Sliders: brightness, bloom, point size, trail length
@@ -280,7 +280,7 @@
 
 <div id="panel" style="display:none">
   <h3>scAnimator</h3>
-  <div class="panel-subtitle">v1.0.7</div>
+  <div class="panel-subtitle">v1.0.8</div>
 
   <div class="panel-group collapsed">
     <div class="panel-group-header" data-toggle="group">
@@ -289,6 +289,8 @@
     </div>
     <div class="panel-group-body">
       <select class="panel-select" id="color-by"></select>
+      <input type="color" id="solid-color" value="#ffffff" style="display:none;width:100%;height:24px;border:1px solid rgba(255,255,255,0.15);border-radius:4px;background:transparent;cursor:pointer;padding:0">
+      <select class="panel-select" id="gradient-cmap" style="display:none;margin-top:4px"></select>
     </div>
   </div>
 
@@ -399,10 +401,10 @@
     <input type="checkbox" id="rec-freeze" style="accent-color:#888;margin:0;cursor:pointer"> Freeze Morph
   </label>
   <select id="rec-mode" style="background:rgba(0,0,0,0.5);color:#ccc;border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:2px 4px;font-size:12px;cursor:pointer">
-    <option value="webm">WebM Video</option>
-    <option value="frames">PNG Frames</option>
+    <option value="frames">PNG Frames (HQ)</option>
+    <option value="webm">WebM Export (LQ)</option>
   </select>
-  <select id="rec-res" style="display:none;background:rgba(0,0,0,0.5);color:#ccc;border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:2px 4px;font-size:12px;cursor:pointer">
+  <select id="rec-res" style="background:rgba(0,0,0,0.5);color:#ccc;border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:2px 4px;font-size:12px;cursor:pointer">
     <option value="native">Native</option>
     <option value="2k">2K (2160px)</option>
     <option value="4k">4K (3840px)</option>
@@ -479,6 +481,21 @@ const COLORMAPS = {
     [0.38, [0.416, 0.056, 0.364]], [0.5, [0.578, 0.148, 0.276]], [0.63, [0.735, 0.267, 0.173]],
     [0.75, [0.865, 0.420, 0.065]], [0.88, [0.954, 0.620, 0.026]], [1, [0.988, 0.998, 0.645]],
   ]),
+  rainbow: buildLUT([
+    [0, [1,0,0]], [0.17, [1,1,0]], [0.33, [0,1,0]], [0.5, [0,1,1]],
+    [0.67, [0,0,1]], [0.83, [1,0,1]], [1, [1,0,0]],
+  ]),
+  turbo: buildLUT([
+    [0, [0.19, 0.07, 0.23]], [0.07, [0.25, 0.14, 0.55]], [0.15, [0.16, 0.34, 0.90]],
+    [0.22, [0.09, 0.53, 0.97]], [0.30, [0.13, 0.70, 0.82]], [0.37, [0.26, 0.82, 0.56]],
+    [0.45, [0.47, 0.90, 0.30]], [0.52, [0.67, 0.93, 0.17]], [0.60, [0.84, 0.89, 0.13]],
+    [0.67, [0.96, 0.79, 0.15]], [0.75, [1.0, 0.62, 0.11]], [0.82, [0.97, 0.43, 0.07]],
+    [0.90, [0.85, 0.24, 0.04]], [1, [0.53, 0.13, 0.03]],
+  ]),
+  coolwarm: buildLUT([
+    [0, [0.23, 0.30, 0.75]], [0.25, [0.55, 0.65, 0.95]], [0.5, [0.97, 0.97, 0.97]],
+    [0.75, [0.95, 0.55, 0.45]], [1, [0.71, 0.02, 0.15]],
+  ]),
 };
 
 // ── Categorical palettes ──
@@ -554,6 +571,18 @@ for (const key of colKeys) {
 
 // Current working colors (modified by color-by, gene, filter)
 const activeColors = new Float32Array(nCells * 3);
+
+function applySolidColor() {
+  const hex = document.getElementById('solid-color').value;
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  for (let i = 0; i < nCells; i++) {
+    activeColors[i * 3]     = r;
+    activeColors[i * 3 + 1] = g;
+    activeColors[i * 3 + 2] = b;
+  }
+}
 
 function computeBaseColors() {
   const col = metaCols[activeColorCol];
@@ -797,6 +826,8 @@ let legendVisible = {}; // category -> bool for legend toggles
 function buildLegend() {
   legendEl.innerHTML = '';
   legendVisible = {};
+  if (activeColorCol === '__solid__' || activeColorCol === '__gradient__') { legendEl.style.display = 'none'; return; }
+  legendEl.style.display = '';
   const col = metaCols[activeColorCol];
   const pal = colPalettes[activeColorCol];
 
@@ -847,7 +878,7 @@ function drawColorbar() {
 function applyOverlay() {
   const colors = geometry.attributes.aColor.array;
   const sizes = geometry.attributes.aSize.array;
-  const col = metaCols[activeColorCol];
+  const col = metaCols[activeColorCol] || null;
 
   // Start from base categorical colors
   for (let i = 0; i < nCells * 3; i++) colors[i] = activeColors[i];
@@ -878,7 +909,8 @@ function applyOverlay() {
   }
 
   // Legend toggle (hide categories in the color-by column)
-  for (const cat of metaCols[activeColorCol].unique) {
+  if (activeColorCol.startsWith('__')) { /* no categories to toggle for special modes */ }
+  else for (const cat of metaCols[activeColorCol].unique) {
     if (legendVisible[cat] === false) {
       for (let i = 0; i < nCells; i++) {
         if (col.values[i] === cat) {
@@ -932,11 +964,98 @@ for (const key of colKeys) {
   colorBySelect.appendChild(opt);
 }
 
+// Add special color mode options
+for (const [val, label] of [['__solid__', 'Solid Color'], ['__gradient__', 'Gradient'], ['__gradient_cluster__', 'Gradient (Cluster)']]) {
+  const opt = document.createElement('option');
+  opt.value = val;
+  opt.textContent = label;
+  colorBySelect.appendChild(opt);
+}
+
+const solidColorInput = document.getElementById('solid-color');
+const gradientCmapSelect = document.getElementById('gradient-cmap');
+let gradientCmapName = 'rainbow';
+
+// Populate gradient colormap dropdown
+for (const name of Object.keys(COLORMAPS)) {
+  const opt = document.createElement('option');
+  opt.value = name;
+  opt.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+  if (name === 'rainbow') opt.selected = true;
+  gradientCmapSelect.appendChild(opt);
+}
+gradientCmapSelect.addEventListener('change', (e) => {
+  gradientCmapName = e.target.value;
+});
+
+function isGradientMode() {
+  return activeColorCol === '__gradient__' || activeColorCol === '__gradient_cluster__';
+}
+
+// Apply gradient colors for current animation time
+// Sample LUT with linear interpolation at position 0–1
+function sampleLUT(lut, p) {
+  const pos = Math.max(0, Math.min(1, p)) * 255;
+  const i0 = Math.floor(pos), i1 = Math.min(i0 + 1, 255);
+  const f = pos - i0;
+  return [
+    lut[i0 * 3]     + (lut[i1 * 3]     - lut[i0 * 3])     * f,
+    lut[i0 * 3 + 1] + (lut[i1 * 3 + 1] - lut[i0 * 3 + 1]) * f,
+    lut[i0 * 3 + 2] + (lut[i1 * 3 + 2] - lut[i0 * 3 + 2]) * f,
+  ];
+}
+
+function applyGradientColors() {
+  const t = currentFrame / nFrames;  // 0–1 synced with animation
+  const lut = COLORMAPS[gradientCmapName];
+  // Ping-pong: 0→1→0 over one loop so start and end colors match
+  const pp = t < 0.5 ? t * 2 : (1 - t) * 2;
+  if (activeColorCol === '__gradient__') {
+    // Uniform: all cells same color from LUT
+    const [r, g, b] = sampleLUT(lut, pp);
+    for (let i = 0; i < nCells; i++) {
+      activeColors[i * 3]     = r;
+      activeColors[i * 3 + 1] = g;
+      activeColors[i * 3 + 2] = b;
+    }
+  } else {
+    // Cluster: each cluster offset evenly, all shift together
+    const col = metaCols[colKeys[0]]; // use first metadata column for clusters
+    const cats = col.unique;
+    const nCats = cats.length;
+    const catIdx = {};
+    for (let c = 0; c < nCats; c++) catIdx[cats[c]] = c;
+    for (let i = 0; i < nCells; i++) {
+      const offset = catIdx[col.values[i]] / nCats;
+      // Each cluster ping-pongs at its own phase offset
+      const raw = (t + offset) % 1.0;
+      const p = raw < 0.5 ? raw * 2 : (1 - raw) * 2;
+      const [r, g, b] = sampleLUT(lut, p);
+      activeColors[i * 3]     = r;
+      activeColors[i * 3 + 1] = g;
+      activeColors[i * 3 + 2] = b;
+    }
+  }
+}
+
 colorBySelect.addEventListener('change', () => {
   activeColorCol = colorBySelect.value;
-  computeBaseColors();
+  const isSolid = activeColorCol === '__solid__';
+  const isGrad = isGradientMode();
+  solidColorInput.style.display = isSolid ? '' : 'none';
+  gradientCmapSelect.style.display = isGrad ? '' : 'none';
+  if (isSolid) applySolidColor();
+  else if (isGrad) applyGradientColors();
+  else computeBaseColors();
   buildLegend();
   applyOverlay();
+});
+
+solidColorInput.addEventListener('input', () => {
+  if (activeColorCol === '__solid__') {
+    applySolidColor();
+    applyOverlay();
+  }
 });
 
 // ── UI: Filter ──
@@ -1102,6 +1221,7 @@ function setFrame(f) {
   geometry.attributes.position.needsUpdate = true;
   paramLabel.textContent = `n_neighbors ~ ${META.nn_labels[f]}`;
   slider.value = f;
+  if (isGradientMode()) { applyGradientColors(); applyOverlay(); }
 }
 
 // Panel sliders
@@ -1329,7 +1449,9 @@ function startRecording() {
     let sourceStream = recSquareCanvas.captureStream(recFps);
     recStream = sourceStream;
 
-    const mimeType = 'video/webm;codecs=vp9';
+    // VP9 preferred, fall back to VP8 (Firefox doesn't support VP9 MediaRecorder)
+    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+      ? 'video/webm;codecs=vp9' : 'video/webm;codecs=vp8';
     recordedChunks = [];
     mediaRecorder = new MediaRecorder(recStream, { mimeType, videoBitsPerSecond: 20000000 });
     mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
@@ -1342,7 +1464,7 @@ function startRecording() {
     };
     mediaRecorder.start();
   } else {
-    // Frame export mode — store capture geometry for use in captureExportFrame
+    // Frame export mode — store capture geometry, kick off stepped export
     frameExportZip = new JSZip();
     frameExportCount = 0;
     recSquareCanvas._capSx = sx;
@@ -1357,39 +1479,153 @@ function startRecording() {
   btnRecord.textContent = 'Stop Rec';
   btnRecord.classList.add('recording');
   recIndicator.style.display = 'block';
+
+  if (recMode === 'frames') {
+    frameExportRunning = true;
+    stepFrameExport();
+  }
 }
 
-// Called from the render loop after each frame render during frame export
-function captureExportFrame() {
-  if (recMode !== 'frames' || !frameExportZip) return;
+// Stepped frame export: runs outside rAF, one frame at a time via toBlob callback
+let frameExportRunning = false;
+
+function renderOneFrame() {
+  // Apply 360 rotation if active
+  if (rotating360 && recRotationStart) {
+    const angle = recFreeze ? recRotationAngle : (2 * Math.PI * currentFrame) / nFrames;
+    const up = camera.up.clone().normalize();
+    const offset = recRotationStart.clone();
+    const cosA = Math.cos(angle), sinA = Math.sin(angle);
+    const dot = offset.dot(up);
+    const cross = new THREE.Vector3().crossVectors(up, offset);
+    offset.multiplyScalar(cosA).add(cross.multiplyScalar(sinA)).add(up.multiplyScalar(dot * (1 - cosA)));
+    camera.position.copy(orbitControls.target).add(offset);
+  }
+  orbitControls.update();
+
+  const dt = 1 / 30;
+  const trailsActive = trailFade >= 0.01 || tracerCount > 0;
+  if (!trailsActive) {
+    composer.renderToScreen = true;
+    composer.render();
+  } else {
+    composer.renderToScreen = false;
+    composer.render();
+    const freshTexture = composer.readBuffer.texture;
+    if (tracerCount > 0) {
+      renderer.setRenderTarget(tracerFrames[tracerHead]);
+      maxBlendMaterial.uniforms.tA.value = freshTexture;
+      maxBlendMaterial.uniforms.tB.value = freshTexture;
+      fsQuad.material = maxBlendMaterial;
+      renderer.render(fsScene, fsCamera);
+      fsQuad.material = fadeMaterial;
+      tracerHead = (tracerHead + 1) % tracerCount;
+    }
+    if (trailFade >= 0.01) {
+      fadeMaterial.uniforms.uDt.value = dt;
+      fadeMaterial.uniforms.tOld.value = trailA.texture;
+      fadeMaterial.uniforms.tNew.value = freshTexture;
+      renderer.setRenderTarget(trailB);
+      fsQuad.material = fadeMaterial;
+      renderer.render(fsScene, fsCamera);
+    } else {
+      maxBlendMaterial.uniforms.tA.value = freshTexture;
+      maxBlendMaterial.uniforms.tB.value = freshTexture;
+      fsQuad.material = maxBlendMaterial;
+      renderer.setRenderTarget(trailB);
+      renderer.render(fsScene, fsCamera);
+      fsQuad.material = fadeMaterial;
+    }
+    if (tracerCount > 0) {
+      for (let i = 0; i < tracerCount; i++) {
+        maxBlendMaterial.uniforms.tA.value = trailB.texture;
+        maxBlendMaterial.uniforms.tB.value = tracerFrames[i].texture;
+        fsQuad.material = maxBlendMaterial;
+        renderer.setRenderTarget(trailA);
+        renderer.render(fsScene, fsCamera);
+        const sw = trailA; trailA = trailB; trailB = sw;
+      }
+      fsQuad.material = fadeMaterial;
+    }
+    outputMaterial.uniforms.tDiffuse.value = trailB.texture;
+    renderer.setRenderTarget(null);
+    renderer.render(outputScene, fsCamera);
+    const tmp = trailA; trailA = trailB; trailB = tmp;
+  }
+}
+
+function stepFrameExport() {
+  if (!frameExportRunning) return;
+
+  renderOneFrame();
+
   const { _capSx: sx, _capSy: sy, _capW: capW, _capH: capH } = recSquareCanvas;
   captureFrameToCanvas(sx, sy, capW, capH);
-  const dataUrl = recSquareCanvas.toDataURL('image/png');
-  const base64 = dataUrl.split(',')[1];
   const padded = String(frameExportCount).padStart(5, '0');
-  frameExportZip.file(`frame_${padded}.png`, base64, { base64: true });
-  frameExportCount++;
+
+  recSquareCanvas.toBlob((blob) => {
+    blob.arrayBuffer().then(buf => {
+      frameExportZip.file(`frame_${padded}.png`, new Uint8Array(buf), { compression: 'STORE' });
+      frameExportCount++;
+
+      // Advance to next frame
+      if (!recFreeze) {
+        const prevFrame = currentFrame;
+        currentFrame = (currentFrame + 1) % nFrames;
+        setFrame(currentFrame);
+        recFrameCount++;
+
+        if (currentFrame === 0 && prevFrame === nFrames - 1) {
+          recLoopCount++;
+          if (recLoopTarget > 0 && recLoopCount >= recLoopTarget) {
+            frameExportRunning = false;
+            stopRecording();
+            return;
+          }
+        }
+      } else if (rotating360) {
+        recRotationAngle += (2 * Math.PI * speed * 30 / nFrames) * (1 / 30);
+        const targetAngle = 2 * Math.PI * (recLoopTarget > 0 ? recLoopTarget : 1);
+        if (recLoopTarget > 0 && recRotationAngle >= targetAngle) {
+          frameExportRunning = false;
+          stopRecording();
+          return;
+        }
+      }
+
+      // Schedule next frame (setTimeout gives browser a chance to breathe)
+      setTimeout(stepFrameExport, 0);
+    });
+  }, 'image/png');
 }
 
 function stopRecording() {
   if (!isRecording) return;
   isRecording = false;
+  frameExportRunning = false;
 
   if (recMode === 'webm') {
     mediaRecorder.stop();
     recStream = null;
     if (recSquareInterval) { clearInterval(recSquareInterval); recSquareInterval = null; }
   } else {
-    // Generate and download the zip
-    btnRecord.textContent = 'Zipping...';
-    frameExportZip.generateAsync({ type: 'blob' }).then((blob) => {
+    // Generate zip with STORE (no re-compression — PNGs are already compressed)
+    btnRecord.textContent = 'Zipping 0%';
+    btnRecord.style.background = `linear-gradient(to right, rgba(255,255,255,0.15) 0%, transparent 0%)`;
+    const zip = frameExportZip;
+    frameExportZip = null;
+    zip.generateAsync({ type: 'blob', compression: 'STORE' }, (meta) => {
+      const pct = Math.round(meta.percent);
+      btnRecord.textContent = `Zipping ${pct}%`;
+      btnRecord.style.background = `linear-gradient(to right, rgba(255,255,255,0.15) ${pct}%, transparent ${pct}%)`;
+    }).then((blob) => {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = 'umap_warp_frames.zip';
       a.click();
-      btnRecord.textContent = 'Record Loop';
+      btnRecord.textContent = 'Record';
+      btnRecord.style.background = '';
     });
-    frameExportZip = null;
   }
 
   recSquareCanvas = null;
@@ -1472,7 +1708,7 @@ function animate(now) {
     renderLastSample = now;
   }
 
-  if (playing && !(isRecording && recFreeze)) {
+  if (playing && !(isRecording && recFreeze) && !frameExportRunning) {
     accumulator += dt * speed * 30;
     while (accumulator >= 1) {
       accumulator -= 1;
@@ -1589,9 +1825,6 @@ function animate(now) {
     renderer.render(outputScene, fsCamera);
     const tmp = trailA; trailA = trailB; trailB = tmp;
   }
-
-  // Capture PNG frame for export mode (after full render including trails)
-  if (isRecording && recMode === 'frames') captureExportFrame();
 
   // captureStream with auto frame rate — no manual requestFrame needed
 }

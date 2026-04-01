@@ -54,7 +54,7 @@
 
   UI LAYOUT
     Top center     - n_neighbors label
-    Left panel     - "scAnimator / v1.1.0" header, then:
+    Left panel     - "scAnimator / v1.1.1" header, then:
                      Color By dropdown, Filter section (column selector + checkboxes),
                      Gene Expression (autocomplete + mapping + colormap selectors),
                      Sliders: brightness, bloom, point size, trail length
@@ -327,7 +327,7 @@
 
 <div id="panel" style="display:none">
   <h3>scAnimator</h3>
-  <div class="panel-subtitle">v1.1.0</div>
+  <div class="panel-subtitle">v1.1.1</div>
 
   <div class="panel-group collapsed">
     <div class="panel-group-header" data-toggle="group">
@@ -1408,17 +1408,20 @@ btnMorph.addEventListener('click', () => {
   btnMorph.classList.toggle('active', morphActive);
 });
 
-let rotation360Start = null; // camera offset saved when 360 is toggled on
+let rotation360Start = null; // camera offset direction saved when 360 is toggled on
+let rotation360Axis = null;  // rotation axis (view direction when 360 was toggled on)
 
 const btnRotate = document.getElementById('btn-rotate');
 btnRotate.addEventListener('click', () => {
   rotating360 = !rotating360;
   btnRotate.classList.toggle('active', rotating360);
   if (rotating360) {
-    // Save current camera offset as the rotation reference
-    rotation360Start = camera.position.clone().sub(orbitControls.target);
+    rotation360Start = camera.position.clone().sub(orbitControls.target).normalize();
+    // Use the current camera's up vector as rotation axis
+    rotation360Axis = camera.up.clone().normalize();
   } else {
     rotation360Start = null;
+    rotation360Axis = null;
   }
 });
 
@@ -1482,16 +1485,17 @@ function applyTimelineState() {
     if (frame !== currentFrame) setFrame(frame);
   }
 
-  // 360 rotation: absolute position from loop time
-  if (rotating360 && rotation360Start) {
+  // 360 rotation: orbit around saved axis, preserving current zoom
+  if (rotating360 && rotation360Start && rotation360Axis) {
     const angle = 2 * Math.PI * lt;
-    const up = camera.up.clone().normalize();
-    const offset = rotation360Start.clone();
+    const axis = rotation360Axis;
+    const dir = rotation360Start.clone();
     const cosA = Math.cos(angle), sinA = Math.sin(angle);
-    const dot = offset.dot(up);
-    const cross = new THREE.Vector3().crossVectors(up, offset);
-    offset.multiplyScalar(cosA).add(cross.multiplyScalar(sinA)).add(up.multiplyScalar(dot * (1 - cosA)));
-    camera.position.copy(orbitControls.target).add(offset);
+    const dot = dir.dot(axis);
+    const cross = new THREE.Vector3().crossVectors(axis, dir);
+    dir.multiplyScalar(cosA).add(cross.multiplyScalar(sinA)).add(axis.clone().multiplyScalar(dot * (1 - cosA)));
+    const currentDist = camera.position.distanceTo(orbitControls.target);
+    camera.position.copy(orbitControls.target).add(dir.multiplyScalar(currentDist));
     orbitControls.update();
   }
 
@@ -1715,7 +1719,8 @@ function startRecording() {
   // Save camera offset for synced 360 rotation
   // Refresh 360 rotation reference if active
   if (rotating360) {
-    rotation360Start = camera.position.clone().sub(orbitControls.target);
+    rotation360Start = camera.position.clone().sub(orbitControls.target).normalize();
+    rotation360Axis = camera.up.clone().normalize();
   }
   recFrameCount = 0;
   // numLoops already synced from spinner UI

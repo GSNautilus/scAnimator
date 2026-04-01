@@ -37,9 +37,9 @@
                      Legend toggles hide categories (size=0)
                      Filter checkboxes hide cells per any metadata column
     Gene overlay   - On-demand Range fetch, cached. Three modes:
-                     colormap (viridis/magma/plasma/inferno LUT),
-                     brightness (dim base colors), size (scale points)
-                     Colorbar shown in bottom-right for colormap mode
+                     size (scale points), colormap (viridis/magma/plasma/inferno LUT),
+                     intensity (dim base colors). Scaling: linear/log/quantile +
+                     intensity gamma slider. Colorbar shown for colormap mode
     Autocomplete   - Matches sorted by expression rank from gene_ranks.json
                      Shows rank annotation like "#42/28134"
     Animation      - requestAnimationFrame loop at native refresh rate
@@ -260,6 +260,17 @@
   }
   #gene-colorbar .cb-title { font-size: 11px; opacity: 0.6; margin-bottom: 3px; }
 
+  #gene-loading-overlay {
+    position: fixed; inset: 0; z-index: 500;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.5);
+    pointer-events: none;
+  }
+  #gene-loading-overlay .gene-loading-msg {
+    font-size: 18px; opacity: 0.85; letter-spacing: 0.5px;
+    text-align: center;
+  }
+
   /* Scrollbar styling for panel */
   #panel::-webkit-scrollbar, #filter-checkboxes::-webkit-scrollbar { width: 4px; }
   #panel::-webkit-scrollbar-thumb, #filter-checkboxes::-webkit-scrollbar-thumb {
@@ -273,6 +284,8 @@
   <div class="msg" id="load-msg">Loading data...</div>
   <div class="bar"><div class="fill" id="load-fill"></div></div>
 </div>
+
+<div id="gene-loading-overlay"><div class="gene-loading-msg">Loading...</div></div>
 
 <div id="param-label">n_neighbors ~ 5</div>
 
@@ -321,16 +334,29 @@
         <div id="gene-dropdown"></div>
       </div>
       <select class="gene-mapping-select" id="gene-mapping">
-        <option value="colormap">Map to: Colormap</option>
-        <option value="brightness">Map to: Brightness</option>
         <option value="size">Map to: Point Size</option>
+        <option value="colormap">Map to: Colormap</option>
+        <option value="intensity">Map to: Intensity</option>
       </select>
-      <select class="gene-mapping-select" id="gene-colormap" style="margin-top:4px">
+      <select class="gene-mapping-select" id="gene-colormap" style="margin-top:4px;display:none">
         <option value="viridis">Viridis</option>
         <option value="magma">Magma</option>
         <option value="plasma">Plasma</option>
         <option value="inferno">Inferno</option>
       </select>
+      <div style="margin-top:6px">
+        <div class="panel-label">Expression Scale</div>
+        <select class="gene-mapping-select" id="gene-scale">
+          <option value="linear">Linear</option>
+          <option value="log">Log</option>
+          <option value="quantile">Quantile</option>
+        </select>
+      </div>
+      <div style="margin-top:6px">
+        <div class="panel-label">Expression Intensity</div>
+        <input type="range" class="panel-slider" id="gene-intensity" min="0.2" max="3.0" step="0.1" value="1.0">
+        <div class="slider-value" id="gene-intensity-val">1.0</div>
+      </div>
       <div class="gene-status" id="gene-status"></div>
       <button class="btn-clear" id="gene-clear">Clear gene</button>
     </div>
@@ -800,10 +826,57 @@ scene.add(pointsMesh);
 
 // ── Gene expression (fetched on demand) ──
 let activeGene = null;
-let activeGeneExpr = null;
-let geneMapping = 'colormap';
+let activeGeneExpr = null;       // raw Uint8 expression (0-255)
+let activeGeneScaled = null;     // scaled/normalized Float32 (0-1)
+let geneMapping = 'size';
 let geneColormapName = 'viridis';
+let geneScaleMode = 'linear';
+let geneIntensity = 1.0;
 const geneCache = {};
+
+// Compute scaled expression from raw Uint8 data based on current scale mode + intensity
+function computeScaledExpression() {
+  if (!activeGeneExpr) { activeGeneScaled = null; return; }
+  const raw = activeGeneExpr;
+  const n = raw.length;
+  const scaled = new Float32Array(n);
+
+  if (geneScaleMode === 'log') {
+    // log1p scaling: log(1 + v) normalized to 0-1
+    const logMax = Math.log1p(255);
+    for (let i = 0; i < n; i++) {
+      scaled[i] = Math.log1p(raw[i]) / logMax;
+    }
+  } else if (geneScaleMode === 'quantile') {
+    // Rank-based: expressing cells mapped evenly across 0-1, zeros stay 0
+    const expressing = [];
+    for (let i = 0; i < n; i++) { if (raw[i] > 0) expressing.push(raw[i]); }
+    expressing.sort((a, b) => a - b);
+    // Build rank map: value -> quantile position
+    const rankMap = new Map();
+    for (let i = 0; i < expressing.length; i++) {
+      rankMap.set(expressing[i], (i + 1) / expressing.length);
+    }
+    for (let i = 0; i < n; i++) {
+      scaled[i] = raw[i] === 0 ? 0 : (rankMap.get(raw[i]) || 0);
+    }
+  } else {
+    // Linear: simple 0-255 -> 0-1
+    for (let i = 0; i < n; i++) {
+      scaled[i] = raw[i] / 255;
+    }
+  }
+
+  // Apply intensity as a power/gamma curve: values < 1 boost low expression, > 1 suppress it
+  if (geneIntensity !== 1.0) {
+    const gamma = 1.0 / geneIntensity;  // intensity > 1 = gamma < 1 = brighter low values
+    for (let i = 0; i < n; i++) {
+      if (scaled[i] > 0) scaled[i] = Math.pow(scaled[i], gamma);
+    }
+  }
+
+  activeGeneScaled = scaled;
+}
 
 async function fetchGeneExpression(gene) {
   if (geneCache[gene]) return geneCache[gene];
@@ -814,7 +887,14 @@ async function fetchGeneExpression(gene) {
     headers: { Range: `bytes=${offset}-${offset + length - 1}` }
   });
   const buf = await resp.arrayBuffer();
-  const arr = new Uint8Array(buf);
+  let arr;
+  if (resp.status === 206) {
+    // Server honored Range request — buffer is exactly the slice we asked for
+    arr = new Uint8Array(buf);
+  } else {
+    // Server returned full file (200) — slice manually
+    arr = new Uint8Array(buf.slice(offset, offset + length));
+  }
   geneCache[gene] = arr;
   return arr;
 }
@@ -826,7 +906,7 @@ let legendVisible = {}; // category -> bool for legend toggles
 function buildLegend() {
   legendEl.innerHTML = '';
   legendVisible = {};
-  if (activeColorCol === '__solid__' || activeColorCol === '__gradient__') { legendEl.style.display = 'none'; return; }
+  if (activeColorCol === '__solid__' || activeColorCol === '__gradient__' || activeColorCol === '__gene_expression__') { legendEl.style.display = 'none'; return; }
   legendEl.style.display = '';
   const col = metaCols[activeColorCol];
   const pal = colPalettes[activeColorCol];
@@ -884,26 +964,26 @@ function applyOverlay() {
   for (let i = 0; i < nCells * 3; i++) colors[i] = activeColors[i];
   for (let i = 0; i < nCells; i++) sizes[i] = 1.0;
 
-  // Gene expression overlay
-  if (activeGene && activeGeneExpr) {
+  // Gene expression overlay (uses pre-scaled 0-1 values)
+  if (activeGene && activeGeneScaled) {
     if (geneMapping === 'colormap') {
       const lut = COLORMAPS[geneColormapName];
       for (let i = 0; i < nCells; i++) {
-        const v = activeGeneExpr[i]; // 0-255
+        const v = Math.round(activeGeneScaled[i] * 255);
         colors[i * 3]     = lut[v * 3];
         colors[i * 3 + 1] = lut[v * 3 + 1];
         colors[i * 3 + 2] = lut[v * 3 + 2];
       }
-    } else if (geneMapping === 'brightness') {
+    } else if (geneMapping === 'intensity') {
       for (let i = 0; i < nCells; i++) {
-        const e = 0.08 + (activeGeneExpr[i] / 255) * 0.92;
+        const e = 0.05 + activeGeneScaled[i] * 0.95;
         colors[i * 3]     = activeColors[i * 3] * e;
         colors[i * 3 + 1] = activeColors[i * 3 + 1] * e;
         colors[i * 3 + 2] = activeColors[i * 3 + 2] * e;
       }
     } else { // size
       for (let i = 0; i < nCells; i++) {
-        sizes[i] = 0.15 + (activeGeneExpr[i] / 255) * 1.85;
+        sizes[i] = 0.1 + activeGeneScaled[i] * 1.9;
       }
     }
   }
@@ -934,24 +1014,59 @@ function applyOverlay() {
   drawColorbar();
 }
 
+const geneLoadingOverlay = document.getElementById('gene-loading-overlay');
+const geneLoadingMsg = geneLoadingOverlay.querySelector('.gene-loading-msg');
+
 async function selectGene(gene) {
   const status = document.getElementById('gene-status');
   status.textContent = 'Loading ' + gene + '...';
-  const expr = await fetchGeneExpression(gene);
-  if (!expr) { status.textContent = gene + ': not found'; return; }
-  activeGene = gene;
-  activeGeneExpr = expr;
-  const nonzero = Array.from(expr).filter(v => v > 0).length;
-  status.textContent = `${gene}: ${nonzero}/${nCells} cells expressing`;
-  applyOverlay();
+  geneLoadingMsg.textContent = 'Loading ' + gene + '...';
+  geneLoadingOverlay.style.display = 'flex';
+  try {
+    const expr = await fetchGeneExpression(gene);
+    if (!expr) {
+      status.textContent = gene + ': not found';
+      geneLoadingOverlay.style.display = 'none';
+      return;
+    }
+    activeGene = gene;
+    activeGeneExpr = expr;
+    computeScaledExpression();
+    let nonzero = 0;
+    for (let i = 0; i < expr.length; i++) { if (expr[i] > 0) nonzero++; }
+    status.textContent = `${gene}: ${nonzero}/${nCells} cells expressing`;
+    // Auto-switch Color By to Gene Expression when in colormap mode
+    if (geneMapping === 'colormap') {
+      colorBySelect.value = '__gene_expression__';
+      activeColorCol = '__gene_expression__';
+      document.getElementById('solid-color').style.display = 'none';
+      document.getElementById('gradient-cmap').style.display = 'none';
+      buildLegend();
+    }
+    updateRenderLabels();
+    applyOverlay();
+  } catch (e) {
+    status.textContent = gene + ': error loading';
+    console.error('Gene fetch error:', e);
+  }
+  geneLoadingOverlay.style.display = 'none';
 }
 
 function clearGene() {
   activeGene = null;
   activeGeneExpr = null;
+  activeGeneScaled = null;
   document.getElementById('gene-status').textContent = '';
   document.getElementById('gene-input').value = '';
+  // Revert Color By if it was auto-switched to Gene Expression
+  if (activeColorCol === '__gene_expression__') {
+    activeColorCol = 'cell_type';
+    colorBySelect.value = 'cell_type';
+    computeBaseColors();
+    buildLegend();
+  }
   applyOverlay();
+  updateRenderLabels();
 }
 
 // ── UI: Color By ──
@@ -965,7 +1080,7 @@ for (const key of colKeys) {
 }
 
 // Add special color mode options
-for (const [val, label] of [['__solid__', 'Solid Color'], ['__gradient__', 'Gradient'], ['__gradient_cluster__', 'Gradient (Cluster)']]) {
+for (const [val, label] of [['__gene_expression__', 'Gene Expression'], ['__solid__', 'Solid Color'], ['__gradient__', 'Gradient'], ['__gradient_cluster__', 'Gradient (Cluster)']]) {
   const opt = document.createElement('option');
   opt.value = val;
   opt.textContent = label;
@@ -1042,9 +1157,11 @@ colorBySelect.addEventListener('change', () => {
   activeColorCol = colorBySelect.value;
   const isSolid = activeColorCol === '__solid__';
   const isGrad = isGradientMode();
+  const isGeneExpr = activeColorCol === '__gene_expression__';
   solidColorInput.style.display = isSolid ? '' : 'none';
   gradientCmapSelect.style.display = isGrad ? '' : 'none';
-  if (isSolid) applySolidColor();
+  if (isGeneExpr) { /* colors handled by applyOverlay gene section */ }
+  else if (isSolid) applySolidColor();
   else if (isGrad) applyGradientColors();
   else computeBaseColors();
   buildLegend();
@@ -1174,13 +1291,55 @@ geneInput.addEventListener('blur', () => {
 document.getElementById('gene-mapping').addEventListener('change', (e) => {
   geneMapping = e.target.value;
   document.getElementById('gene-colormap').style.display = geneMapping === 'colormap' ? '' : 'none';
+  // Auto-switch Color By when switching to/from colormap with active gene
+  if (activeGene && geneMapping === 'colormap') {
+    colorBySelect.value = '__gene_expression__';
+    activeColorCol = '__gene_expression__';
+    document.getElementById('solid-color').style.display = 'none';
+    document.getElementById('gradient-cmap').style.display = 'none';
+    buildLegend();
+  } else if (activeColorCol === '__gene_expression__' && geneMapping !== 'colormap') {
+    activeColorCol = 'cell_type';
+    colorBySelect.value = 'cell_type';
+    computeBaseColors();
+    buildLegend();
+  }
+  updateRenderLabels();
   applyOverlay();
 });
 document.getElementById('gene-colormap').addEventListener('change', (e) => {
   geneColormapName = e.target.value;
   applyOverlay();
 });
+document.getElementById('gene-scale').addEventListener('change', (e) => {
+  geneScaleMode = e.target.value;
+  computeScaledExpression();
+  applyOverlay();
+});
+document.getElementById('gene-intensity').addEventListener('input', (e) => {
+  geneIntensity = parseFloat(e.target.value);
+  document.getElementById('gene-intensity-val').textContent = geneIntensity.toFixed(1);
+  computeScaledExpression();
+  applyOverlay();
+});
 document.getElementById('gene-clear').addEventListener('click', clearGene);
+
+// ── Render label helpers (show gene interaction context) ──
+function updateRenderLabels() {
+  const sizeLabel = document.querySelector('#point-size').closest('.panel-section').querySelector('.panel-label');
+  const intensityLabel = document.querySelector('#brightness').closest('.panel-section').querySelector('.panel-label');
+  const geneActive = activeGene != null;
+  if (geneActive && geneMapping === 'size') {
+    sizeLabel.textContent = 'Point Size (base × gene)';
+  } else {
+    sizeLabel.textContent = 'Point Size';
+  }
+  if (geneActive && geneMapping === 'intensity') {
+    intensityLabel.textContent = 'Point Intensity (base × gene)';
+  } else {
+    intensityLabel.textContent = 'Point Intensity';
+  }
+}
 
 // ── Build initial legend ──
 buildLegend();

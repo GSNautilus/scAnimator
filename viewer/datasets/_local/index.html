@@ -594,7 +594,40 @@ function generatePalette(uniqueVals) {
   return pal;
 }
 
-// ── Load external data ──
+// ── IndexedDB helpers for local dataset loading ──
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('scAnimator', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('files');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbGet(db, key) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('files', 'readonly');
+    const req = tx.objectStore('files').get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+const _idb = await openDB();
+let _expressionBuf = null; // cached for slicing
+
+async function loadLocal(name) {
+  const data = await idbGet(_idb, name);
+  if (data === undefined) throw new Error(`File not found in local storage: ${name}`);
+  return data;
+}
+
+async function loadLocalJSON(name) {
+  const text = await loadLocal(name);
+  return JSON.parse(text);
+}
+
+// ── Load external data (from IndexedDB) ──
 const loadFill = document.getElementById('load-fill');
 const loadMsg = document.getElementById('load-msg');
 
@@ -604,12 +637,12 @@ function progress(pct, msg) {
 }
 
 progress(5, 'Loading metadata...');
-const META = await (await fetch('metadata.json')).json();
+const META = await loadLocalJSON('metadata.json');
 const nCells = META.n_cells;
 const nFrames = META.n_frames;
 
 progress(15, 'Loading frames...');
-const framesBuf = await (await fetch('frames.bin')).arrayBuffer();
+const framesBuf = await loadLocal('frames.bin');
 const allFrames = new Float32Array(framesBuf);
 const frameSize = nCells * 3;
 const frames = [];
@@ -618,16 +651,19 @@ for (let i = 0; i < nFrames; i++) {
 }
 
 progress(60, 'Loading colors...');
-const colorsBuf = await (await fetch('colors.bin')).arrayBuffer();
+const colorsBuf = await loadLocal('colors.bin');
 const baseColorsOriginal = new Float32Array(colorsBuf);
 
 progress(70, 'Loading gene index...');
-const geneIndex = await (await fetch('gene_index.json')).json();
+const geneIndex = await loadLocalJSON('gene_index.json');
 
 progress(75, 'Loading gene ranks...');
 let geneRanks = {};
-try { geneRanks = await (await fetch('gene_ranks.json')).json(); } catch(e) {}
+try { geneRanks = await loadLocalJSON('gene_ranks.json'); } catch(e) {}
 const totalGenes = Object.keys(geneRanks).length || 1;
+
+progress(78, 'Loading expression data...');
+_expressionBuf = await loadLocal('expression.bin');
 
 progress(80, 'Initializing viewer...');
 
@@ -938,18 +974,7 @@ async function fetchGeneExpression(gene) {
   const info = geneIndex[gene];
   if (!info) return null;
   const [offset, length] = info;
-  const resp = await fetch('expression.bin', {
-    headers: { Range: `bytes=${offset}-${offset + length - 1}` }
-  });
-  const buf = await resp.arrayBuffer();
-  let arr;
-  if (resp.status === 206) {
-    // Server honored Range request — buffer is exactly the slice we asked for
-    arr = new Uint8Array(buf);
-  } else {
-    // Server returned full file (200) — slice manually
-    arr = new Uint8Array(buf.slice(offset, offset + length));
-  }
+  const arr = new Uint8Array(_expressionBuf.slice(offset, offset + length));
   geneCache[gene] = arr;
   return arr;
 }

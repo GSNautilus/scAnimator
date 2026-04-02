@@ -54,7 +54,7 @@
 
   UI LAYOUT
     Top center     - n_neighbors label
-    Left panel     - "scAnimator / v1.1.2" header, then:
+    Left panel     - "scAnimator / v1.1.3" header, then:
                      Color By dropdown, Filter section (column selector + checkboxes),
                      Gene Expression (autocomplete + mapping + colormap selectors),
                      Sliders: brightness, bloom, point size, trail length
@@ -105,10 +105,18 @@
     overflow-y: auto;
     pointer-events: auto;
   }
+  .panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
   #panel h3 {
     font-size: 15px; font-weight: 600;
-    letter-spacing: 1.5px; opacity: 0.7; margin-bottom: 2px;
+    letter-spacing: 1.5px; opacity: 0.7;
   }
+  #btn-datasets {
+    font-size: 14px; width: 26px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+    cursor: pointer; border-radius: 4px; padding: 0; line-height: 1;
+  }
+  #btn-datasets:hover { background: rgba(255,255,255,0.15); }
   #panel .panel-subtitle {
     font-size: 12px; opacity: 0.25; letter-spacing: 1px; margin-bottom: 12px;
   }
@@ -326,8 +334,11 @@
 <div id="rec-indicator">REC</div>
 
 <div id="panel" style="display:none">
-  <h3>scAnimator</h3>
-  <div class="panel-subtitle">v1.1.2</div>
+  <div class="panel-header">
+    <h3>scAnimator</h3>
+    <button id="btn-datasets" title="Back to dataset selection" onclick="window.location.href='../../index.html'"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></button>
+  </div>
+  <div class="panel-subtitle">v1.1.3</div>
 
   <div class="panel-group collapsed">
     <div class="panel-group-header" data-toggle="group">
@@ -622,7 +633,7 @@ progress(80, 'Initializing viewer...');
 
 // ── Dataset name ──
 if (META.name) {
-  document.querySelector('.panel-subtitle').textContent = META.name + ' \u2014 v1.1.2';
+  document.querySelector('.panel-subtitle').textContent = META.name + ' \u2014 v1.1.3';
   document.title = 'scAnimator \u2014 ' + META.name;
 }
 
@@ -1858,23 +1869,45 @@ function stopRecording() {
   const zip = frameExportZip;
   frameExportZip = null;
   zip.file('fps.txt', String(recFps));
-  zip.generateAsync({ type: 'blob', compression: 'STORE' }, (meta) => {
+  const zipFilename = `umap_warp_frames_${recFps}fps.zip`;
+
+  // Use arraybuffer to avoid JSZip internal blob-assembly issues on large files
+  zip.generateAsync({ type: 'arraybuffer', compression: 'STORE' }, (meta) => {
     const pct = Math.round(meta.percent);
     btnRecord.textContent = `Zipping ${pct}%`;
     btnRecord.style.background = `linear-gradient(to right, rgba(255,255,255,0.15) ${pct}%, transparent ${pct}%)`;
-  }).then((blob) => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `umap_warp_frames_${recFps}fps.zip`;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
-    }, 1000);
+  }).then(async (arrayBuffer) => {
+    const blob = new Blob([arrayBuffer], { type: 'application/zip' });
+    // Prefer File System Access API for large files (avoids blob URL size limits)
+    if (window.showSaveFilePicker) {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: zipFilename,
+          types: [{ description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+      } catch (e) {
+        if (e.name !== 'AbortError') console.error('Save failed:', e);
+      }
+    } else {
+      // Fallback for Firefox / older browsers
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = zipFilename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 5000);
+    }
     btnRecord.textContent = 'Record';
     btnRecord.style.background = '';
+  }).catch((err) => {
+    console.error('Zip generation failed:', err);
+    btnRecord.textContent = 'ZIP FAILED';
+    btnRecord.style.background = 'rgba(200,30,30,0.4)';
+    setTimeout(() => { btnRecord.textContent = 'Record'; btnRecord.style.background = ''; }, 4000);
   });
 
   recSquareCanvas = null;

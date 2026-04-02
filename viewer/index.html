@@ -35,24 +35,66 @@
   .card-title { font-size: 18px; font-weight: 400; margin-bottom: 8px; }
   .card-detail { font-size: 13px; opacity: 0.5; line-height: 1.5; }
   .loading { font-size: 13px; opacity: 0.3; }
+  .load-section {
+    display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;
+    padding: 0 24px;
+  }
+  .load-btn {
+    background: rgba(255,255,255,0.04);
+    border: 1px dashed rgba(255,255,255,0.2);
+    border-radius: 10px;
+    padding: 18px 28px;
+    color: #fff; font-size: 14px;
+    cursor: pointer; transition: background 0.2s, border-color 0.2s;
+    font-family: inherit; display: flex; align-items: center; gap: 10px;
+  }
+  .load-btn:hover {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.35);
+  }
+  .load-btn .icon { font-size: 20px; opacity: 0.5; }
+  .load-btn .label { opacity: 0.7; }
+  .load-btn .sublabel { font-size: 11px; opacity: 0.35; margin-top: 2px; }
+  .load-status {
+    font-size: 13px; opacity: 0.5; text-align: center;
+    min-height: 20px; padding: 0 24px;
+  }
 </style>
 </head>
 <body>
 <div style="text-align:center">
   <h1>scAnimator</h1>
-  <div class="subtitle">Neural scRNAseq — 3D UMAP Warp Visualization</div>
+  <div class="subtitle">scRNAseq — 3D UMAP Warp Visualization</div>
 </div>
 <div class="grid" id="grid">
   <div class="loading">Loading datasets...</div>
 </div>
+<div class="load-section">
+  <button class="load-btn" id="btn-folder" title="Load a pre-built dataset folder (must contain metadata.json, frames.bin, etc.)">
+    <div>
+      <div class="label">Load Folder</div>
+      <div class="sublabel">Pre-built dataset directory</div>
+    </div>
+  </button>
+  <input type="file" id="folder-input" webkitdirectory directory multiple style="display:none">
+  <button class="load-btn" id="btn-h5ad" title="Load an .h5ad file">
+    <div>
+      <div class="label">Load .h5ad</div>
+      <div class="sublabel">AnnData file</div>
+    </div>
+  </button>
+</div>
+<div class="load-status" id="load-status"></div>
 <script>
 const datasets = [
   { id: 'allcombined', fallbackName: 'All Combined' },
   { id: 'dorsal',      fallbackName: 'Dorsal' },
   { id: 'ventral',     fallbackName: 'Ventral' },
+  { id: 'pbmc3k',      fallbackName: 'PBMC 3k' },
 ];
 
 const grid = document.getElementById('grid');
+const status = document.getElementById('load-status');
 
 async function loadDatasets() {
   const cards = [];
@@ -76,8 +118,84 @@ async function loadDatasets() {
   }
   grid.innerHTML = cards.length
     ? cards.join('')
-    : '<div class="loading">No datasets found. Run build_viewer.py to generate data.</div>';
+    : '<div class="loading">No datasets found.</div>';
 }
+
+// ── IndexedDB helpers ──
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('scAnimator', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('files');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function storeFile(db, name, data) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('files', 'readwrite');
+    tx.objectStore('files').put(data, name);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// ── Load Folder ──
+const folderInput = document.getElementById('folder-input');
+document.getElementById('btn-folder').addEventListener('click', () => folderInput.click());
+
+folderInput.addEventListener('change', async () => {
+  const files = folderInput.files;
+  if (!files.length) return;
+
+  const required = ['metadata.json', 'frames.bin', 'colors.bin', 'gene_index.json', 'expression.bin'];
+  const optional = ['gene_ranks.json'];
+  const wanted = new Set([...required, ...optional]);
+
+  // Build a map of filename -> File from the selected directory
+  const fileMap = {};
+  for (const f of files) {
+    const name = f.name;
+    if (wanted.has(name)) fileMap[name] = f;
+  }
+
+  // Check required files
+  for (const fname of required) {
+    if (!fileMap[fname]) {
+      status.textContent = `Missing required file: ${fname}`;
+      return;
+    }
+  }
+
+  status.textContent = 'Reading files from folder...';
+
+  try {
+    const db = await openDB();
+    const clearTx = db.transaction('files', 'readwrite');
+    clearTx.objectStore('files').clear();
+    await new Promise(r => { clearTx.oncomplete = r; });
+
+    for (const [fname, file] of Object.entries(fileMap)) {
+      const isJson = fname.endsWith('.json');
+      const data = isJson ? await file.text() : await file.arrayBuffer();
+      await storeFile(db, fname, data);
+      status.textContent = `Loaded ${fname}...`;
+    }
+
+    status.textContent = 'Launching viewer...';
+    window.location.href = 'datasets/_local/index.html';
+  } catch(e) {
+    status.textContent = 'Error: ' + e.message;
+  }
+});
+
+// ── Load .h5ad ──
+document.getElementById('btn-h5ad').addEventListener('click', () => {
+  status.innerHTML = 'To load an .h5ad file, first process it with:<br>' +
+    '<code style="background:rgba(255,255,255,0.1);padding:4px 8px;border-radius:4px;font-size:12px;display:inline-block;margin-top:6px">' +
+    'python build_viewer.py --input your_file.h5ad --output-dir viewer/datasets/name</code><br>' +
+    '<span style="opacity:0.5;font-size:12px;margin-top:4px;display:inline-block">Then use "Load Folder" to open the output directory, or restart the server.</span>';
+});
 
 loadDatasets();
 </script>

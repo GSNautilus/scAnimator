@@ -54,7 +54,7 @@
 
   UI LAYOUT
     Top center     - n_neighbors label
-    Left panel     - "scAnimator / v1.1.3" header, then:
+    Left panel     - "scAnimator / v1.1.4" header, then:
                      Color By dropdown, Filter section (column selector + checkboxes),
                      Gene Expression (autocomplete + mapping + colormap selectors),
                      Sliders: brightness, bloom, point size, trail length
@@ -338,7 +338,7 @@
     <h3>scAnimator <img src="../logo.png" alt="" style="height:20px;vertical-align:middle;margin-left:2px;opacity:1"></h3>
     <button id="btn-datasets" title="Back to dataset selection" onclick="window.location.href='../../index.html'"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></button>
   </div>
-  <div class="panel-subtitle">v1.1.3</div>
+  <div class="panel-subtitle">v1.1.4</div>
 
   <div class="panel-group collapsed">
     <div class="panel-group-header" data-toggle="group">
@@ -633,7 +633,7 @@ progress(80, 'Initializing viewer...');
 
 // ── Dataset name ──
 if (META.name) {
-  document.querySelector('.panel-subtitle').textContent = META.name + ' \u2014 v1.1.3';
+  document.querySelector('.panel-subtitle').textContent = META.name + ' \u2014 v1.1.4';
   document.title = 'scAnimator \u2014 ' + META.name;
 }
 
@@ -1507,12 +1507,21 @@ recLoopsInput.addEventListener('change', () => {
 });
 
 function setFrame(f) {
-  currentFrame = f;
-  const src = frames[f];
+  currentFrame = Math.floor(f);
   const pos = geometry.attributes.position.array;
-  for (let i = 0; i < nCells * 3; i++) pos[i] = src[i];
+  const frac = f - Math.floor(f);
+  if (frac < 0.001 || Math.floor(f) === nFrames - 1) {
+    // Exact frame, no interpolation needed
+    const src = frames[Math.floor(f) % nFrames];
+    for (let i = 0; i < nCells * 3; i++) pos[i] = src[i];
+  } else {
+    // Lerp between adjacent frames
+    const a = frames[Math.floor(f) % nFrames];
+    const b = frames[(Math.floor(f) + 1) % nFrames];
+    for (let i = 0; i < nCells * 3; i++) pos[i] = a[i] + (b[i] - a[i]) * frac;
+  }
   geometry.attributes.position.needsUpdate = true;
-  paramLabel.textContent = `n_neighbors ~ ${META.nn_labels[f]}`;
+  paramLabel.textContent = `n_neighbors ~ ${META.nn_labels[Math.floor(f) % nFrames]}`;
 }
 
 // Get the looping-aware normalized position (0–1) that cycles numLoops times
@@ -1531,10 +1540,10 @@ function applyTimelineState() {
   slider.value = Math.round(t * 1000);
   playheadTime.textContent = loopTime.toFixed(1) + 's';
 
-  // Morph: map loop position to animation frame
+  // Morph: map loop position to animation frame (fractional for smooth interpolation)
   if (morphActive) {
-    const frame = Math.floor(lt * nFrames) % nFrames;
-    if (frame !== currentFrame) setFrame(frame);
+    const frame = (lt * nFrames) % nFrames;
+    setFrame(frame);
   }
 
   // 360 rotation: orbit around saved axis, preserving current zoom

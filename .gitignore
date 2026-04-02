@@ -5,6 +5,12 @@ viewer/expression.bin
 viewer/gene_index.json
 viewer/gene_ranks.json
 viewer/metadata.json
+viewer/datasets/*/frames.bin
+viewer/datasets/*/colors.bin
+viewer/datasets/*/expression.bin
+viewer/datasets/*/gene_index.json
+viewer/datasets/*/gene_ranks.json
+viewer/datasets/*/metadata.json
 
 # Source data (not redistributable)
 *.RData

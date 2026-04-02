@@ -335,7 +335,7 @@
 
 <div id="panel" style="display:none">
   <div class="panel-header">
-    <h3>scAnimator</h3>
+    <h3>scAnimator <img src="../logo.png" alt="" style="height:20px;vertical-align:middle;margin-left:2px;opacity:1"></h3>
     <button id="btn-datasets" title="Back to dataset selection" onclick="window.location.href='../../index.html'"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></button>
   </div>
   <div class="panel-subtitle">v1.1.3</div>
@@ -981,6 +981,11 @@ function buildLegend() {
     div.addEventListener('click', () => {
       legendVisible[cat] = !legendVisible[cat];
       div.classList.toggle('disabled', !legendVisible[cat]);
+      // Sync with filter checkboxes
+      if (filterVisible[activeColorCol]) {
+        filterVisible[activeColorCol][cat] = legendVisible[cat];
+        if (filterColSelect.value === activeColorCol) buildFilterCheckboxes();
+      }
       applyOverlay();
     });
     legendEl.appendChild(div);
@@ -1253,6 +1258,16 @@ function buildFilterCheckboxes() {
     cb.checked = filterVisible[key][val];
     cb.addEventListener('change', () => {
       filterVisible[key][val] = cb.checked;
+      // Sync with legend if this is the active color-by column
+      if (key === activeColorCol && legendVisible[val] !== undefined) {
+        legendVisible[val] = cb.checked;
+        const items = legendEl.querySelectorAll('.legend-item');
+        items.forEach(item => {
+          if (item.textContent.startsWith(val + ' ')) {
+            item.classList.toggle('disabled', !cb.checked);
+          }
+        });
+      }
       applyOverlay();
     });
     row.appendChild(cb);
@@ -1264,22 +1279,42 @@ function buildFilterCheckboxes() {
 filterColSelect.addEventListener('change', buildFilterCheckboxes);
 buildFilterCheckboxes();
 
+function syncLegendFromFilter() {
+  const key = filterColSelect.value;
+  if (key === activeColorCol) {
+    for (const v of metaCols[key].unique) {
+      if (legendVisible[v] !== undefined) legendVisible[v] = filterVisible[key][v];
+    }
+    const items = legendEl.querySelectorAll('.legend-item');
+    items.forEach(item => {
+      for (const v of metaCols[key].unique) {
+        if (item.textContent.startsWith(v + ' ')) {
+          item.classList.toggle('disabled', !filterVisible[key][v]);
+        }
+      }
+    });
+  }
+}
+
 document.getElementById('filter-all').addEventListener('click', () => {
   const key = filterColSelect.value;
   for (const v of metaCols[key].unique) filterVisible[key][v] = true;
   buildFilterCheckboxes();
+  syncLegendFromFilter();
   applyOverlay();
 });
 document.getElementById('filter-none').addEventListener('click', () => {
   const key = filterColSelect.value;
   for (const v of metaCols[key].unique) filterVisible[key][v] = false;
   buildFilterCheckboxes();
+  syncLegendFromFilter();
   applyOverlay();
 });
 document.getElementById('filter-invert').addEventListener('click', () => {
   const key = filterColSelect.value;
   for (const v of metaCols[key].unique) filterVisible[key][v] = !filterVisible[key][v];
   buildFilterCheckboxes();
+  syncLegendFromFilter();
   applyOverlay();
 });
 

@@ -77,12 +77,6 @@
     </div>
   </button>
   <input type="file" id="folder-input" webkitdirectory directory multiple style="display:none">
-  <button class="load-btn" id="btn-h5ad" title="Load an .h5ad file">
-    <div>
-      <div class="label">Load .h5ad</div>
-      <div class="sublabel">AnnData file</div>
-    </div>
-  </button>
 </div>
 <div class="load-status" id="load-status"></div>
 <script>
@@ -188,14 +182,6 @@ folderInput.addEventListener('change', async () => {
   } catch(e) {
     status.textContent = 'Error: ' + e.message;
   }
-});
-
-// ── Load .h5ad ──
-document.getElementById('btn-h5ad').addEventListener('click', () => {
-  status.innerHTML = 'To load an .h5ad file, first process it with:<br>' +
-    '<code style="background:rgba(255,255,255,0.1);padding:4px 8px;border-radius:4px;font-size:12px;display:inline-block;margin-top:6px">' +
-    'python build_viewer.py --input your_file.h5ad --output-dir viewer/datasets/name</code><br>' +
-    '<span style="opacity:0.5;font-size:12px;margin-top:4px;display:inline-block">Then use "Load Folder" to open the output directory, or restart the server.</span>';
 });
 
 loadDatasets();

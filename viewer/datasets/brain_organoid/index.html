@@ -886,27 +886,60 @@ const sizesArr = new Float32Array(nCells);
 for (let i = 0; i < nCells * 3; i++) colorsArr[i] = activeColors[i];
 sizesArr.fill(1.0);
 
+const catOffsetArr = new Float32Array(nCells); // per-cell category phase offset for GPU gradient
 geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 geometry.setAttribute('aColor', new THREE.BufferAttribute(colorsArr, 3));
 geometry.setAttribute('aSize', new THREE.BufferAttribute(sizesArr, 1));
+geometry.setAttribute('aCatOffset', new THREE.BufferAttribute(catOffsetArr, 1));
 
 let basePtSize = 2.0;
+
+// GPU gradient LUT texture (256x1 RGB float) — updated when colormap changes
+const gradLUTData = new Float32Array(256 * 4); // RGBA for DataTexture
+const gradLUTTex = new THREE.DataTexture(gradLUTData, 256, 1, THREE.RGBAFormat, THREE.FloatType);
+gradLUTTex.minFilter = THREE.LinearFilter;
+gradLUTTex.magFilter = THREE.LinearFilter;
+gradLUTTex.wrapS = THREE.ClampToEdgeWrapping;
+
+function uploadGradientLUT(cmapName) {
+  const lut = COLORMAPS[cmapName];
+  for (let i = 0; i < 256; i++) {
+    gradLUTData[i * 4]     = lut[i * 3];
+    gradLUTData[i * 4 + 1] = lut[i * 3 + 1];
+    gradLUTData[i * 4 + 2] = lut[i * 3 + 2];
+    gradLUTData[i * 4 + 3] = 1.0;
+  }
+  gradLUTTex.needsUpdate = true;
+}
 
 const material = new THREE.ShaderMaterial({
   transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   uniforms: {
     uSize: { value: basePtSize * pr },
     uBrightness: { value: 1.0 },
+    uGradientMode: { value: 0 },
+    uGradientT: { value: 0.0 },
+    uGradientLUT: { value: gradLUTTex },
   },
   vertexShader: `
     attribute vec3 aColor;
     attribute float aSize;
+    attribute float aCatOffset;
     varying vec3 vColor;
     varying float vAlpha;
     uniform float uSize;
+    uniform int uGradientMode;
+    uniform float uGradientT;
+    uniform sampler2D uGradientLUT;
     void main() {
-      vColor = aColor;
       vAlpha = aSize;
+      if (uGradientMode > 0) {
+        float raw = fract(uGradientT + aCatOffset);
+        float pp = raw < 0.5 ? raw * 2.0 : (1.0 - raw) * 2.0;
+        vColor = texture2D(uGradientLUT, vec2(pp, 0.5)).rgb;
+      } else {
+        vColor = aColor;
+      }
       vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
       gl_PointSize = uSize * aSize / -mvPos.z;
       gl_Position = projectionMatrix * mvPos;
@@ -1214,6 +1247,7 @@ for (const name of Object.keys(COLORMAPS)) {
 }
 gradientCmapSelect.addEventListener('change', (e) => {
   gradientCmapName = e.target.value;
+  if (isGradientMode()) uploadGradientLUT(gradientCmapName);
 });
 
 function isGradientMode() {
@@ -1233,37 +1267,28 @@ function sampleLUT(lut, p) {
   ];
 }
 
-function applyGradientColors() {
-  const t = getTimelineT();  // 0–1 synced with master timeline
-  const lut = COLORMAPS[gradientCmapName];
-  // Ping-pong: 0→1→0 over one loop so start and end colors match
-  const pp = t < 0.5 ? t * 2 : (1 - t) * 2;
+// Set up GPU gradient mode — called when mode/colormap changes, NOT per-frame
+function setupGradientGPU() {
+  uploadGradientLUT(gradientCmapName);
   if (activeColorCol === '__gradient__') {
-    // Uniform: all cells same color from LUT
-    const [r, g, b] = sampleLUT(lut, pp);
-    for (let i = 0; i < nCells; i++) {
-      activeColors[i * 3]     = r;
-      activeColors[i * 3 + 1] = g;
-      activeColors[i * 3 + 2] = b;
-    }
+    material.uniforms.uGradientMode.value = 1;
+    catOffsetArr.fill(0);
   } else {
-    // Cluster: each cluster offset evenly, all shift together
-    const col = metaCols[colKeys[0]]; // use first metadata column for clusters
+    material.uniforms.uGradientMode.value = 2;
+    const col = metaCols[colKeys[0]];
     const cats = col.unique;
     const nCats = cats.length;
     const catIdx = {};
     for (let c = 0; c < nCats; c++) catIdx[cats[c]] = c;
     for (let i = 0; i < nCells; i++) {
-      const offset = catIdx[col.values[i]] / nCats;
-      // Each cluster ping-pongs at its own phase offset
-      const raw = (t + offset) % 1.0;
-      const p = raw < 0.5 ? raw * 2 : (1 - raw) * 2;
-      const [r, g, b] = sampleLUT(lut, p);
-      activeColors[i * 3]     = r;
-      activeColors[i * 3 + 1] = g;
-      activeColors[i * 3 + 2] = b;
+      catOffsetArr[i] = catIdx[col.values[i]] / nCats;
     }
   }
+  geometry.attributes.aCatOffset.needsUpdate = true;
+}
+
+function disableGradientGPU() {
+  material.uniforms.uGradientMode.value = 0;
 }
 
 colorBySelect.addEventListener('change', () => {
@@ -1273,10 +1298,11 @@ colorBySelect.addEventListener('change', () => {
   const isGeneExpr = activeColorCol === '__gene_expression__';
   solidColorInput.style.display = isSolid ? '' : 'none';
   gradientCmapSelect.style.display = isGrad ? '' : 'none';
+  if (isGrad) setupGradientGPU();
+  else disableGradientGPU();
   if (isGeneExpr) { /* colors handled by applyOverlay gene section */ }
   else if (isSolid) applySolidColor();
-  else if (isGrad) applyGradientColors();
-  else computeBaseColors();
+  else if (!isGrad) computeBaseColors();
   buildLegend();
   applyOverlay();
 });
@@ -1701,7 +1727,8 @@ function applyTimelineState() {
   }
 
   // Gradient colors use loop position
-  if (isGradientMode()) { applyGradientColors(); applyOverlay(); }
+  // Gradient colors: just update the timeline uniform — GPU does the rest
+  if (isGradientMode()) { material.uniforms.uGradientT.value = getTimelineT(); }
 }
 
 // Get normalized timeline position (used by gradient and other systems)

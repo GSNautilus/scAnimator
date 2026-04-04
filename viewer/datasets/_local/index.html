@@ -54,7 +54,7 @@
 
   UI LAYOUT
     Top center     - n_neighbors label
-    Left panel     - "scAnimator / v1.1.4" header, then:
+    Left panel     - "scAnimator / v1.1.5" header, then:
                      Color By dropdown, Filter section (column selector + checkboxes),
                      Gene Expression (autocomplete + mapping + colormap selectors),
                      Sliders: brightness, bloom, point size, trail length
@@ -338,7 +338,7 @@
     <h3>scAnimator <img src="../logo.png" alt="" style="height:20px;vertical-align:middle;margin-left:2px;opacity:1"></h3>
     <button id="btn-datasets" title="Back to dataset selection" onclick="window.location.href='../../index.html'"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></button>
   </div>
-  <div class="panel-subtitle">v1.1.4</div>
+  <div class="panel-subtitle">v1.1.5</div>
 
   <div class="panel-group collapsed">
     <div class="panel-group-header" data-toggle="group">
@@ -499,7 +499,6 @@
   <button id="btn-fullscreen" title="Toggle fullscreen">&#x26F6;</button>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script type="importmap">
 {
   "imports": {
@@ -669,7 +668,7 @@ progress(80, 'Initializing viewer...');
 
 // ── Dataset name ──
 if (META.name) {
-  document.querySelector('.panel-subtitle').textContent = META.name + ' \u2014 v1.1.4';
+  document.querySelector('.panel-subtitle').textContent = META.name + ' \u2014 v1.1.5';
   document.title = 'scAnimator \u2014 ' + META.name;
 }
 
@@ -1709,13 +1708,104 @@ function drawRecHud(ctx, w, h) {
   }
 }
 
+// ── ZIP64 writer (no JSZip, no memory accumulation) ──
+// PNG Blobs are stored as references — the browser can page them to disk.
+// Final Blob is assembled from many small parts, no single >2GB buffer.
+const _CRC32T = new Uint32Array(256);
+for (let _i = 0; _i < 256; _i++) {
+  let _c = _i;
+  for (let _j = 0; _j < 8; _j++) _c = (_c & 1) ? (0xEDB88320 ^ (_c >>> 1)) : (_c >>> 1);
+  _CRC32T[_i] = _c >>> 0;
+}
+function _crc32(data) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < data.length; i++) c = _CRC32T[(c ^ data[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function _w16(dv, p, v) { dv.setUint16(p, v, true); }
+function _w32(dv, p, v) { dv.setUint32(p, v, true); }
+function _w64(dv, p, v) { dv.setUint32(p, v >>> 0, true); dv.setUint32(p + 4, Math.floor(v / 0x100000000) >>> 0, true); }
+
+function createZipWriter() {
+  const parts = [];   // Uint8Array | Blob — Blobs are disk-backed
+  const entries = [];  // { nameBytes, crc, size, offset }
+  let offset = 0;
+
+  return {
+    addFile(name, blob, crc, size) {
+      const nb = new TextEncoder().encode(name);
+      // Local file header + ZIP64 extra (20 bytes: tag(2)+len(2)+uncomp(8)+comp(8))
+      const h = new Uint8Array(30 + nb.length + 20);
+      const dv = new DataView(h.buffer);
+      _w32(dv, 0, 0x04034b50); _w16(dv, 4, 45); _w16(dv, 8, 0);
+      _w32(dv, 14, crc); _w32(dv, 18, 0xFFFFFFFF); _w32(dv, 22, 0xFFFFFFFF);
+      _w16(dv, 26, nb.length); _w16(dv, 28, 20);
+      h.set(nb, 30);
+      const ex = 30 + nb.length;
+      _w16(dv, ex, 0x0001); _w16(dv, ex + 2, 16);
+      _w64(dv, ex + 4, size); _w64(dv, ex + 12, size);
+
+      entries.push({ nameBytes: nb, crc, size, offset });
+      parts.push(h);
+      parts.push(blob);  // Blob reference, not ArrayBuffer copy
+      offset += h.length + size;
+    },
+
+    finalize() {
+      const cdStart = offset;
+      const cdParts = [];
+      for (const e of entries) {
+        const cd = new Uint8Array(46 + e.nameBytes.length + 28);
+        const dv = new DataView(cd.buffer);
+        _w32(dv, 0, 0x02014b50); _w16(dv, 4, 45); _w16(dv, 6, 45);
+        _w16(dv, 10, 0); _w32(dv, 16, e.crc);
+        _w32(dv, 20, 0xFFFFFFFF); _w32(dv, 24, 0xFFFFFFFF);
+        _w16(dv, 28, e.nameBytes.length); _w16(dv, 30, 28);
+        _w32(dv, 42, 0xFFFFFFFF);
+        cd.set(e.nameBytes, 46);
+        const ex = 46 + e.nameBytes.length;
+        _w16(dv, ex, 0x0001); _w16(dv, ex + 2, 24);
+        _w64(dv, ex + 4, e.size); _w64(dv, ex + 12, e.size); _w64(dv, ex + 20, e.offset);
+        cdParts.push(cd);
+      }
+      let cdSize = 0;
+      for (const p of cdParts) cdSize += p.length;
+
+      // ZIP64 EOCD (56 bytes)
+      const z64eocd = new Uint8Array(56);
+      const d1 = new DataView(z64eocd.buffer);
+      _w32(d1, 0, 0x06064b50); _w64(d1, 4, 44);
+      _w16(d1, 12, 45); _w16(d1, 14, 45);
+      _w64(d1, 24, entries.length); _w64(d1, 32, entries.length);
+      _w64(d1, 40, cdSize); _w64(d1, 48, cdStart);
+
+      // ZIP64 EOCD locator (20 bytes)
+      const z64loc = new Uint8Array(20);
+      const d2 = new DataView(z64loc.buffer);
+      _w32(d2, 0, 0x07064b50); _w64(d2, 8, cdStart + cdSize); _w32(d2, 16, 1);
+
+      // Standard EOCD (22 bytes) with ZIP64 markers
+      const eocd = new Uint8Array(22);
+      const d3 = new DataView(eocd.buffer);
+      _w32(d3, 0, 0x06054b50);
+      _w16(d3, 4, 0xFFFF); _w16(d3, 6, 0xFFFF);
+      _w16(d3, 8, 0xFFFF); _w16(d3, 10, 0xFFFF);
+      _w32(d3, 12, 0xFFFFFFFF); _w32(d3, 16, 0xFFFFFFFF);
+
+      return new Blob([...parts, ...cdParts, z64eocd, z64loc, eocd], { type: 'application/zip' });
+    },
+
+    get count() { return entries.length; }
+  };
+}
+
 // ── Recording (PNG frame export) ──
 let isRecording = false;
 let recSquareCanvas = null;
 let recSquareCtx = null;
 let recFrameCount = 0;
 let recFps = 30;
-let frameExportZip = null;
+let zipWriter = null;
 let frameExportCount = 0;
 let recWantSquare = false;
 let recWantHud = false;
@@ -1817,7 +1907,7 @@ function startRecording() {
   recSquareCanvas._capW = capW;
   recSquareCanvas._capH = capH;
 
-  frameExportZip = new JSZip();
+  zipWriter = createZipWriter();
   frameExportCount = 0;
 
   isRecording = true;
@@ -1903,7 +1993,8 @@ function stepFrameExport() {
   const padded = String(frameExportCount).padStart(5, '0');
   recSquareCanvas.toBlob((blob) => {
     blob.arrayBuffer().then(buf => {
-      frameExportZip.file(`frame_${padded}.png`, new Uint8Array(buf), { compression: 'STORE' });
+      const crc = _crc32(new Uint8Array(buf));
+      zipWriter.addFile(`frame_${padded}.png`, blob, crc, buf.byteLength);
       frameExportCount++;
       advanceStepExport();
     });
@@ -1911,9 +2002,9 @@ function stepFrameExport() {
 }
 
 function advanceStepExport() {
-  // Advance timeline by one frame's worth of time
+  // Advance timeline by one frame's worth of time, respecting speed
   recFrameCount++;
-  loopTime += loopDuration / recFramesPerLoop;
+  loopTime += (loopDuration / recFramesPerLoop) * speed;
 
   // Check for duration completion
   if (loopTime >= loopDuration) {
@@ -1932,52 +2023,37 @@ function stopRecording() {
   isRecording = false;
   frameExportRunning = false;
 
-  // Generate zip with STORE (no re-compression — PNGs are already compressed)
-  btnRecord.textContent = 'Zipping 0%';
-  btnRecord.style.background = `linear-gradient(to right, rgba(255,255,255,0.15) 0%, transparent 0%)`;
-  const zip = frameExportZip;
-  frameExportZip = null;
-  zip.file('fps.txt', String(recFps));
+  btnRecord.textContent = 'Finalizing...';
+  btnRecord.style.background = '';
+
+  // Add fps.txt to zip
+  const fpsTxt = new TextEncoder().encode(String(recFps));
+  zipWriter.addFile('fps.txt', new Blob([fpsTxt]), _crc32(fpsTxt), fpsTxt.length);
+
   const zipFilename = `umap_warp_frames_${recFps}fps.zip`;
 
-  // Use arraybuffer to avoid JSZip internal blob-assembly issues on large files
-  zip.generateAsync({ type: 'arraybuffer', compression: 'STORE' }, (meta) => {
-    const pct = Math.round(meta.percent);
-    btnRecord.textContent = `Zipping ${pct}%`;
-    btnRecord.style.background = `linear-gradient(to right, rgba(255,255,255,0.15) ${pct}%, transparent ${pct}%)`;
-  }).then(async (arrayBuffer) => {
-    const blob = new Blob([arrayBuffer], { type: 'application/zip' });
-    // Prefer File System Access API for large files (avoids blob URL size limits)
-    if (window.showSaveFilePicker) {
-      try {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: zipFilename,
-          types: [{ description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-      } catch (e) {
-        if (e.name !== 'AbortError') console.error('Save failed:', e);
-      }
-    } else {
-      // Fallback for Firefox / older browsers
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = zipFilename;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 5000);
-    }
+  // Finalize ZIP64 — assembles Blob from disk-backed parts, no single >2GB buffer
+  try {
+    const blob = zipWriter.finalize();
+    zipWriter = null;
+
+    // Download
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = zipFilename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 10000);
+
     btnRecord.textContent = 'Record';
     btnRecord.style.background = '';
-  }).catch((err) => {
-    console.error('Zip generation failed:', err);
+  } catch (err) {
+    console.error('Zip finalization failed:', err);
     btnRecord.textContent = 'ZIP FAILED';
     btnRecord.style.background = 'rgba(200,30,30,0.4)';
     setTimeout(() => { btnRecord.textContent = 'Record'; btnRecord.style.background = ''; }, 4000);
-  });
+  }
 
   recSquareCanvas = null;
   recSquareCtx = null;

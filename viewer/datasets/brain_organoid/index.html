@@ -608,12 +608,33 @@ const nCells = META.n_cells;
 const nFrames = META.n_frames;
 
 progress(15, 'Loading frames...');
-const framesBuf = await (await fetch('frames.bin')).arrayBuffer();
-const allFrames = new Float32Array(framesBuf);
 const frameSize = nCells * 3;
+const frameSizeBytes = frameSize * 4;
 const frames = [];
-for (let i = 0; i < nFrames; i++) {
-  frames.push(allFrames.subarray(i * frameSize, (i + 1) * frameSize));
+// Large datasets (>2GB) can exceed Float32Array's safe indexing range in a
+// single ArrayBuffer.  Split into per-frame copies to stay well under limits.
+const totalBytes = nFrames * frameSizeBytes;
+if (totalBytes > 2_000_000_000) {
+  // Stream via Range requests in chunks of frames
+  const chunkFrames = Math.max(1, Math.floor(2_000_000_000 / frameSizeBytes));
+  for (let start = 0; start < nFrames; start += chunkFrames) {
+    const end = Math.min(start + chunkFrames, nFrames);
+    const byteStart = start * frameSizeBytes;
+    const byteEnd = end * frameSizeBytes - 1;
+    progress(15 + Math.round((start / nFrames) * 40), `Loading frames ${start}-${end-1}/${nFrames}...`);
+    const resp = await fetch('frames.bin', { headers: { 'Range': `bytes=${byteStart}-${byteEnd}` } });
+    const buf = await resp.arrayBuffer();
+    const arr = new Float32Array(buf);
+    for (let i = 0; i < end - start; i++) {
+      frames.push(new Float32Array(arr.buffer, i * frameSizeBytes, frameSize));
+    }
+  }
+} else {
+  const framesBuf = await (await fetch('frames.bin')).arrayBuffer();
+  const allFrames = new Float32Array(framesBuf);
+  for (let i = 0; i < nFrames; i++) {
+    frames.push(allFrames.subarray(i * frameSize, (i + 1) * frameSize));
+  }
 }
 
 progress(60, 'Loading colors...');

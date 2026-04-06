@@ -7,8 +7,9 @@ small (< 100k cells) and large (1M+) datasets efficiently via adaptive
 memory strategies.
 
 INPUT FORMATS
-  1. h5ad (AnnData) -- any .h5ad file with a dimensionality-reduced embedding
-     (PCA, scPoli, scVI, etc.) in obsm.
+  1. h5ad (AnnData) -- any .h5ad file. If no suitable embedding (>= 3D) is
+     found in obsm, PCA (50 components) is computed automatically. Use
+     --no-pca to skip this and run UMAP directly on expression (slower).
   2. Export directory -- legacy format from R/Seurat export (pca.csv, etc.)
 
 UMAP MODES
@@ -75,6 +76,8 @@ parser.add_argument("--n-interp-frames", type=int, default=180,
                     help="Interpolation frames for sweep (default: 180)")
 parser.add_argument("--filter-region", default=None, choices=["dorsal", "ventral"],
                     help="Filter cells to a region (legacy export only)")
+parser.add_argument("--no-pca", action="store_true",
+                    help="Skip auto-PCA fallback; use expression matrix directly for UMAP input")
 parser.add_argument("--skip-umap", action="store_true",
                     help="Skip UMAP computation (reuse existing frames.bin)")
 parser.add_argument("--skip-expression", action="store_true",
@@ -156,6 +159,8 @@ META_COL_LABELS = {
     "annot_region_rev2": "Brain Region",
     "organoid_age_days": "Organoid Age (days)",
     "publication": "Publication", "cell_line": "Cell Line",
+    "author_celltype": "Author Cell Type", "sub_celltype": "Sub Cell Type",
+    "groupid": "GBM Subtype", "donor_id": "Donor", "sample_id": "Sample",
 }
 
 # -- Large-cell threshold: above this, use backed mode + h5py expression --
@@ -192,13 +197,80 @@ def load_from_h5ad(path):
 
     # Embedding
     emb_key = args.embedding_key
+    need_pca = False
+
     if emb_key not in adata.obsm:
         available = list(adata.obsm.keys())
-        raise ValueError(f"Embedding '{emb_key}' not in obsm. Available: {available}")
-    X_emb = np.array(adata.obsm[emb_key], dtype=np.float32)
-    if X_emb.shape[1] > 50:
-        X_emb = X_emb[:, :50]
-    print(f"  Embedding: {emb_key} {X_emb.shape}")
+        # Check if any obsm key has >= 3 dims
+        usable = [(k, adata.obsm[k].shape[1]) for k in available if adata.obsm[k].shape[1] >= 3]
+        if usable:
+            # Pick the best alternative (prefer PCA-like, then highest-dim)
+            pca_like = [k for k, d in usable if 'pca' in k.lower()]
+            fallback_key = pca_like[0] if pca_like else usable[0][0]
+            print(f"  WARNING: '{emb_key}' not in obsm. Using '{fallback_key}' instead.")
+            emb_key = fallback_key
+        else:
+            print(f"  WARNING: '{emb_key}' not in obsm. Available: {available}")
+            if available:
+                dims = {k: adata.obsm[k].shape[1] for k in available}
+                print(f"  Embedding dimensions: {dims}")
+                print(f"  All available embeddings are <= 2D — insufficient for 3D UMAP.")
+            need_pca = True
+
+    if not need_pca:
+        X_emb = np.array(adata.obsm[emb_key], dtype=np.float32)
+        if X_emb.shape[1] < 3:
+            print(f"  WARNING: Embedding '{emb_key}' is only {X_emb.shape[1]}D — too few dimensions for 3D UMAP.")
+            need_pca = True
+            del X_emb
+        else:
+            if X_emb.shape[1] > 50:
+                X_emb = X_emb[:, :50]
+            print(f"  Embedding: {emb_key} {X_emb.shape}")
+
+    if need_pca:
+        if args.no_pca:
+            print(f"  --no-pca specified: will run UMAP directly on expression matrix.")
+            print(f"  (This is slower and noisier than PCA. Consider removing --no-pca.)")
+            from scipy.sparse import issparse
+            if use_backed:
+                raise ValueError("--no-pca with backed mode not supported. "
+                                 "Expression matrix too large to load into memory for direct UMAP.")
+            expr_for_umap = adata.X
+            if issparse(expr_for_umap):
+                expr_for_umap = expr_for_umap.toarray()
+            X_emb = np.array(expr_for_umap, dtype=np.float32)
+            del expr_for_umap
+            print(f"  Using raw expression: {X_emb.shape}")
+        else:
+            print(f"  Computing PCA (50 components) as UMAP input...")
+            import scanpy as sc_inner
+            # Need in-memory adata for PCA
+            if use_backed:
+                print(f"  Loading expression into memory for PCA (large dataset)...")
+                adata_mem = sc_inner.read_h5ad(path)
+                sc_inner.pp.normalize_total(adata_mem, target_sum=1e4)
+                sc_inner.pp.log1p(adata_mem)
+                sc_inner.pp.highly_variable_genes(adata_mem, n_top_genes=3000, flavor='seurat',
+                                                  subset=False)
+                sc_inner.pp.scale(adata_mem, max_value=10)
+                sc_inner.tl.pca(adata_mem, n_comps=50, use_highly_variable=True)
+                X_emb = np.array(adata_mem.obsm['X_pca'], dtype=np.float32)
+                del adata_mem
+                gc.collect()
+            else:
+                # In-memory: run PCA on current adata
+                adata_pca = adata.copy()
+                sc_inner.pp.normalize_total(adata_pca, target_sum=1e4)
+                sc_inner.pp.log1p(adata_pca)
+                sc_inner.pp.highly_variable_genes(adata_pca, n_top_genes=3000, flavor='seurat',
+                                                  subset=False)
+                sc_inner.pp.scale(adata_pca, max_value=10)
+                sc_inner.tl.pca(adata_pca, n_comps=50, use_highly_variable=True)
+                X_emb = np.array(adata_pca.obsm['X_pca'], dtype=np.float32)
+                del adata_pca
+                gc.collect()
+            print(f"  PCA computed: {X_emb.shape}")
 
     # Cell type column
     ct_col = args.cell_type_col or detect_cell_type_col(adata.obs.columns)
@@ -237,9 +309,15 @@ def load_from_h5ad(path):
             label = META_COL_LABELS.get(col, col.replace("_", " ").title())
             metadata_cols[col] = {"label": label, "values": vals, "unique": uniq}
 
-    # Genes
-    if args.hvg_only and 'highly_variable' in adata.var.columns:
-        hvg_mask = adata.var['highly_variable'].values
+    # Genes — detect HVG column (bool 'highly_variable' or int 'vst.variable')
+    hvg_col = None
+    if args.hvg_only:
+        if 'highly_variable' in adata.var.columns:
+            hvg_col = 'highly_variable'
+        elif 'vst.variable' in adata.var.columns:
+            hvg_col = 'vst.variable'
+    if args.hvg_only and hvg_col is not None:
+        hvg_mask = adata.var[hvg_col].values.astype(bool)
         gene_indices = np.where(hvg_mask)[0]
         if 'feature_name' in adata.var.columns:
             all_names = adata.var['feature_name'].values.astype(str)

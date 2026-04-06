@@ -54,7 +54,7 @@
 
   UI LAYOUT
     Top center     - n_neighbors label
-    Left panel     - "scAnimator / v1.2.1" header, then:
+    Left panel     - "scAnimator / v1.3.0" header, then:
                      Color By dropdown, Filter section (column selector + checkboxes),
                      Gene Expression (autocomplete + mapping + colormap selectors),
                      Sliders: brightness, bloom, point size, trail length
@@ -138,6 +138,21 @@
   .panel-group.collapsed .panel-group-arrow { transform: rotate(-90deg); }
   .panel-group.collapsed .panel-group-body { display: none; }
   .panel-group-body { }
+  .audio-band-group { margin-top: 8px; }
+  .audio-band-header {
+    display: flex; align-items: center; gap: 6px;
+    cursor: pointer; user-select: none; padding: 4px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.15); margin-bottom: 6px;
+  }
+  .audio-band-title { font-size: 11px; opacity: 0.5; text-transform: uppercase; letter-spacing: 1px; }
+  .audio-band-meter-wrap {
+    flex: 1; height: 5px; background: rgba(255,255,255,0.1);
+    border-radius: 3px; overflow: hidden;
+  }
+  .audio-meter-fill { height: 100%; width: 0%; border-radius: 3px; transition: width 0.05s; background: #4f8; }
+  .audio-band-arrow { font-size: 9px; opacity: 0.35; transition: transform 0.2s; }
+  .audio-band-group.collapsed .audio-band-arrow { transform: rotate(-90deg); }
+  .audio-band-group.collapsed .audio-band-body { display: none; }
   .panel-section { margin-bottom: 16px; }
   .panel-section:last-child { margin-bottom: 0; }
   .panel-label {
@@ -347,7 +362,7 @@
     <h3>scAnimator <img src="../logo.png" alt="" style="height:20px;vertical-align:middle;margin-left:2px;opacity:1"></h3>
     <button id="btn-datasets" title="Back to dataset selection" onclick="window.location.href='../../index.html'"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></button>
   </div>
-  <div class="panel-subtitle">v1.2.1</div>
+  <div class="panel-subtitle">v1.3.0</div>
 
   <div class="panel-group collapsed">
     <div class="panel-group-header" data-toggle="group">
@@ -434,6 +449,211 @@
 
   <div class="panel-group collapsed">
     <div class="panel-group-header" data-toggle="group">
+      <span class="panel-group-title">Reactivity</span>
+      <span class="panel-group-arrow">&#9660;</span>
+    </div>
+    <div class="panel-group-body">
+      <label style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:12px;cursor:pointer">
+        <input type="checkbox" id="audio-enable"> Enable Audio Input
+      </label>
+      <div id="audio-device-wrap" style="display:none">
+        <div class="panel-label">Input Device</div>
+        <select class="gene-mapping-select" id="audio-device"></select>
+      </div>
+      <div id="audio-controls" style="display:none">
+        <!-- Global VU meters -->
+        <div style="margin-bottom:8px">
+          <div class="panel-label">Level</div>
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <div style="display:flex;align-items:center;gap:4px">
+              <span style="font-size:9px;opacity:0.4;width:24px">ALL</span>
+              <div class="audio-band-meter-wrap"><div class="audio-meter-fill" id="audio-meter-fill"></div></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px">
+              <span style="font-size:9px;opacity:0.4;width:24px">LO</span>
+              <div class="audio-band-meter-wrap"><div class="audio-meter-fill" id="audio-meter-bass"></div></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px">
+              <span style="font-size:9px;opacity:0.4;width:24px">MID</span>
+              <div class="audio-band-meter-wrap"><div class="audio-meter-fill" id="audio-meter-mids"></div></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px">
+              <span style="font-size:9px;opacity:0.4;width:24px">HI</span>
+              <div class="audio-band-meter-wrap"><div class="audio-meter-fill" id="audio-meter-highs"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Global controls -->
+        <div style="margin-top:6px">
+          <div class="panel-label">Colormap</div>
+          <select class="gene-mapping-select" id="audio-colormap" style="display:none">
+            <option value="viridis">Viridis</option>
+            <option value="magma">Magma</option>
+            <option value="plasma">Plasma</option>
+            <option value="inferno">Inferno</option>
+            <option value="rainbow">Rainbow</option>
+            <option value="turbo">Turbo</option>
+            <option value="coolwarm">Coolwarm</option>
+          </select>
+        </div>
+        <div id="audio-displace-wrap" style="display:none;margin-top:6px">
+          <div class="panel-label">Displacement Amount</div>
+          <input type="range" class="panel-slider" id="audio-displacement" min="0.05" max="3.0" step="0.05" value="0.5">
+          <div class="slider-value" id="audio-displacement-val">0.50</div>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;cursor:pointer">
+          <input type="checkbox" id="audio-peak-hold"> Peak Hold
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;cursor:pointer">
+          <input type="checkbox" id="audio-cluster-map"> Cluster Mapping
+        </label>
+        <select class="gene-mapping-select" id="audio-cluster-col" style="margin-top:4px;display:none"></select>
+        <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;cursor:pointer">
+          <input type="checkbox" id="audio-expr-weight"> Expression Weight
+        </label>
+
+        <!-- Per-band sections -->
+        <div id="audio-bass-group" class="audio-band-group collapsed">
+          <div class="audio-band-header" id="audio-bass-header">
+            <span class="audio-band-title">Bass</span>
+            <div class="audio-band-meter-wrap"><div class="audio-meter-fill" id="audio-meter-bass-inline"></div></div>
+            <span class="audio-band-arrow">&#9660;</span>
+          </div>
+          <div class="audio-band-body">
+            <div class="panel-label">Map to</div>
+            <select class="gene-mapping-select" id="audio-bass-mapping">
+              <option value="size" selected>Point Size</option>
+              <option value="intensity">Intensity</option>
+              <option value="colormap">Colormap</option>
+              <option value="displacement">Displacement</option>
+            </select>
+            <div style="margin-top:6px">
+              <div class="panel-label">Scale</div>
+              <select class="gene-mapping-select" id="audio-bass-scale">
+                <option value="linear">Linear</option>
+                <option value="log">Log (boost lows)</option>
+                <option value="exp">Exponential (boost peaks)</option>
+              </select>
+            </div>
+            <div style="margin-top:6px">
+              <div class="panel-label">Sensitivity</div>
+              <input type="range" class="panel-slider" id="audio-bass-sensitivity" min="0.2" max="5.0" step="0.1" value="1.5">
+              <div class="slider-value" id="audio-bass-sensitivity-val">1.5</div>
+            </div>
+            <div style="margin-top:6px">
+              <div class="panel-label">Strength</div>
+              <input type="range" class="panel-slider" id="audio-bass-strength" min="0" max="2.0" step="0.05" value="1.0">
+              <div class="slider-value" id="audio-bass-strength-val">1.00</div>
+            </div>
+            <div style="margin-top:6px">
+              <div class="panel-label">Smoothing</div>
+              <input type="range" class="panel-slider" id="audio-bass-smoothing" min="0.0" max="0.95" step="0.05" value="0.8">
+              <div class="slider-value" id="audio-bass-smoothing-val">0.80</div>
+            </div>
+            <div style="margin-top:6px">
+              <div class="panel-label">Spread</div>
+              <input type="range" class="panel-slider" id="audio-bass-spread" min="0" max="1.0" step="0.05" value="0">
+              <div class="slider-value" id="audio-bass-spread-val">0.00</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="audio-mids-group" class="audio-band-group collapsed">
+          <div class="audio-band-header" id="audio-mids-header">
+            <span class="audio-band-title">Mids</span>
+            <div class="audio-band-meter-wrap"><div class="audio-meter-fill" id="audio-meter-mids-inline"></div></div>
+            <span class="audio-band-arrow">&#9660;</span>
+          </div>
+          <div class="audio-band-body">
+            <div class="panel-label">Map to</div>
+            <select class="gene-mapping-select" id="audio-mids-mapping">
+              <option value="size">Point Size</option>
+              <option value="intensity" selected>Intensity</option>
+              <option value="colormap">Colormap</option>
+              <option value="displacement">Displacement</option>
+            </select>
+            <div style="margin-top:6px">
+              <div class="panel-label">Scale</div>
+              <select class="gene-mapping-select" id="audio-mids-scale">
+                <option value="linear">Linear</option>
+                <option value="log">Log (boost lows)</option>
+                <option value="exp">Exponential (boost peaks)</option>
+              </select>
+            </div>
+            <div style="margin-top:6px">
+              <div class="panel-label">Sensitivity</div>
+              <input type="range" class="panel-slider" id="audio-mids-sensitivity" min="0.2" max="5.0" step="0.1" value="1.5">
+              <div class="slider-value" id="audio-mids-sensitivity-val">1.5</div>
+            </div>
+            <div style="margin-top:6px">
+              <div class="panel-label">Strength</div>
+              <input type="range" class="panel-slider" id="audio-mids-strength" min="0" max="2.0" step="0.05" value="1.0">
+              <div class="slider-value" id="audio-mids-strength-val">1.00</div>
+            </div>
+            <div style="margin-top:6px">
+              <div class="panel-label">Smoothing</div>
+              <input type="range" class="panel-slider" id="audio-mids-smoothing" min="0.0" max="0.95" step="0.05" value="0.8">
+              <div class="slider-value" id="audio-mids-smoothing-val">0.80</div>
+            </div>
+            <div style="margin-top:6px">
+              <div class="panel-label">Spread</div>
+              <input type="range" class="panel-slider" id="audio-mids-spread" min="0" max="1.0" step="0.05" value="0">
+              <div class="slider-value" id="audio-mids-spread-val">0.00</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="audio-highs-group" class="audio-band-group collapsed">
+          <div class="audio-band-header" id="audio-highs-header">
+            <span class="audio-band-title">Highs</span>
+            <div class="audio-band-meter-wrap"><div class="audio-meter-fill" id="audio-meter-highs-inline"></div></div>
+            <span class="audio-band-arrow">&#9660;</span>
+          </div>
+          <div class="audio-band-body">
+            <div class="panel-label">Map to</div>
+            <select class="gene-mapping-select" id="audio-highs-mapping">
+              <option value="size">Point Size</option>
+              <option value="intensity">Intensity</option>
+              <option value="colormap" selected>Colormap</option>
+              <option value="displacement">Displacement</option>
+            </select>
+            <div style="margin-top:6px">
+              <div class="panel-label">Scale</div>
+              <select class="gene-mapping-select" id="audio-highs-scale">
+                <option value="linear">Linear</option>
+                <option value="log">Log (boost lows)</option>
+                <option value="exp">Exponential (boost peaks)</option>
+              </select>
+            </div>
+            <div style="margin-top:6px">
+              <div class="panel-label">Sensitivity</div>
+              <input type="range" class="panel-slider" id="audio-highs-sensitivity" min="0.2" max="5.0" step="0.1" value="1.5">
+              <div class="slider-value" id="audio-highs-sensitivity-val">1.5</div>
+            </div>
+            <div style="margin-top:6px">
+              <div class="panel-label">Strength</div>
+              <input type="range" class="panel-slider" id="audio-highs-strength" min="0" max="2.0" step="0.05" value="1.0">
+              <div class="slider-value" id="audio-highs-strength-val">1.00</div>
+            </div>
+            <div style="margin-top:6px">
+              <div class="panel-label">Smoothing</div>
+              <input type="range" class="panel-slider" id="audio-highs-smoothing" min="0.0" max="0.95" step="0.05" value="0.8">
+              <div class="slider-value" id="audio-highs-smoothing-val">0.80</div>
+            </div>
+            <div style="margin-top:6px">
+              <div class="panel-label">Spread</div>
+              <input type="range" class="panel-slider" id="audio-highs-spread" min="0" max="1.0" step="0.05" value="0">
+              <div class="slider-value" id="audio-highs-spread-val">0.00</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel-group collapsed">
+    <div class="panel-group-header" data-toggle="group">
       <span class="panel-group-title">Render Settings</span>
       <span class="panel-group-arrow">&#9660;</span>
     </div>
@@ -467,6 +687,24 @@
         <div class="panel-label">Tracer Length</div>
         <input type="range" class="panel-slider" id="tracer-length" min="0" max="180" step="1" value="0">
         <div class="slider-value" id="tracer-val">Off</div>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;cursor:pointer">
+        <input type="checkbox" id="fractal-enable"> Fractal Reflection
+      </label>
+      <div class="panel-section" id="fractal-section" style="display:none;margin-top:6px">
+        <div class="panel-label">Fractal Symmetry</div>
+        <input type="range" class="panel-slider" id="fractal-symmetry" min="2" max="12" step="1" value="6">
+        <div class="slider-value" id="fractal-symmetry-val">6</div>
+      </div>
+      <div class="panel-section" id="fractal-zoom-section" style="display:none">
+        <div class="panel-label">Fractal Zoom</div>
+        <input type="range" class="panel-slider" id="fractal-zoom" min="0.5" max="5.0" step="0.1" value="1.5">
+        <div class="slider-value" id="fractal-zoom-val">1.5</div>
+      </div>
+      <div class="panel-section" id="fractal-intensity-section" style="display:none">
+        <div class="panel-label">Fractal Intensity</div>
+        <input type="range" class="panel-slider" id="fractal-intensity" min="0.0" max="1.0" step="0.05" value="0.3">
+        <div class="slider-value" id="fractal-intensity-val">0.30</div>
       </div>
     </div>
   </div>
@@ -619,6 +857,11 @@ function generatePalette(uniqueVals) {
   return pal;
 }
 
+// ── Dataset prefix from URL ──
+const urlParams = new URLSearchParams(window.location.search);
+const DATASET_ID = urlParams.get('dataset') || 'pbmc3k';
+const DATA_PREFIX = `datasets/${DATASET_ID}/`;
+
 // ── Load external data ──
 const loadFill = document.getElementById('load-fill');
 const loadMsg = document.getElementById('load-msg');
@@ -629,7 +872,7 @@ function progress(pct, msg) {
 }
 
 progress(5, 'Loading metadata...');
-const META = await (await fetch('metadata.json')).json();
+const META = await (await fetch(DATA_PREFIX + 'metadata.json')).json();
 const nCells = META.n_cells;
 const nFrames = META.n_frames;
 
@@ -648,7 +891,7 @@ if (totalBytes > 2_000_000_000) {
     const byteStart = start * frameSizeBytes;
     const byteEnd = end * frameSizeBytes - 1;
     progress(15 + Math.round((start / nFrames) * 40), `Loading frames ${start}-${end-1}/${nFrames}...`);
-    const resp = await fetch('frames.bin', { headers: { 'Range': `bytes=${byteStart}-${byteEnd}` } });
+    const resp = await fetch(DATA_PREFIX + 'frames.bin', { headers: { 'Range': `bytes=${byteStart}-${byteEnd}` } });
     const buf = await resp.arrayBuffer();
     const arr = new Float32Array(buf);
     for (let i = 0; i < end - start; i++) {
@@ -656,7 +899,7 @@ if (totalBytes > 2_000_000_000) {
     }
   }
 } else {
-  const framesBuf = await (await fetch('frames.bin')).arrayBuffer();
+  const framesBuf = await (await fetch(DATA_PREFIX + 'frames.bin')).arrayBuffer();
   const allFrames = new Float32Array(framesBuf);
   for (let i = 0; i < nFrames; i++) {
     frames.push(allFrames.subarray(i * frameSize, (i + 1) * frameSize));
@@ -664,22 +907,22 @@ if (totalBytes > 2_000_000_000) {
 }
 
 progress(60, 'Loading colors...');
-const colorsBuf = await (await fetch('colors.bin')).arrayBuffer();
+const colorsBuf = await (await fetch(DATA_PREFIX + 'colors.bin')).arrayBuffer();
 const baseColorsOriginal = new Float32Array(colorsBuf);
 
 progress(70, 'Loading gene index...');
-const geneIndex = await (await fetch('gene_index.json')).json();
+const geneIndex = await (await fetch(DATA_PREFIX + 'gene_index.json')).json();
 
 progress(75, 'Loading gene ranks...');
 let geneRanks = {};
-try { geneRanks = await (await fetch('gene_ranks.json')).json(); } catch(e) {}
+try { geneRanks = await (await fetch(DATA_PREFIX + 'gene_ranks.json')).json(); } catch(e) {}
 const totalGenes = Object.keys(geneRanks).length || 1;
 
 progress(80, 'Initializing viewer...');
 
 // ── Dataset name ──
 if (META.name) {
-  document.querySelector('.panel-subtitle').textContent = META.name + ' \u2014 v1.2.1';
+  document.querySelector('.panel-subtitle').textContent = META.name + ' \u2014 v1.3.0';
   document.title = 'scAnimator \u2014 ' + META.name;
 }
 
@@ -878,6 +1121,46 @@ const outputScene = new THREE.Scene(); outputScene.add(outputQuad);
 let trailFade = 0.0;  // actual fade value sent to shader (0–0.99)
 let decaySlider = 0;  // raw slider value (0–100)
 
+// ── Fractal reflection ──
+let fractalEnabled = false;
+const fractalMaterial = new THREE.ShaderMaterial({
+  uniforms: {
+    tScene: { value: null },
+    uSymmetry: { value: 6.0 },
+    uZoom: { value: 1.5 },
+    uIntensity: { value: 0.3 },
+    uAspect: { value: innerWidth / innerHeight },
+  },
+  vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tScene;
+    uniform float uSymmetry;
+    uniform float uZoom;
+    uniform float uIntensity;
+    uniform float uAspect;
+    varying vec2 vUv;
+    void main() {
+      vec4 original = texture2D(tScene, vUv);
+      vec2 centered = (vUv - 0.5) * vec2(uAspect, 1.0);
+      float r = length(centered) * uZoom;
+      float a = atan(centered.y, centered.x);
+      float slice = 3.14159265 / uSymmetry;
+      a = mod(a, slice * 2.0);
+      if (a > slice) a = slice * 2.0 - a;
+      vec2 folded = vec2(cos(a), sin(a)) * r;
+      folded.x /= uAspect;
+      vec2 fracUv = folded + 0.5;
+      vec2 edge = smoothstep(0.0, 0.05, fracUv) * smoothstep(0.0, 0.05, 1.0 - fracUv);
+      float mask = edge.x * edge.y;
+      vec4 fractal = texture2D(tScene, clamp(fracUv, 0.0, 1.0)) * mask;
+      gl_FragColor = vec4(original.rgb + fractal.rgb * uIntensity, 1.0);
+    }
+  `,
+});
+const fractalQuad = new THREE.Mesh(fsQuadGeo.clone(), fractalMaterial);
+const fractalScene = new THREE.Scene(); fractalScene.add(fractalQuad);
+let fractalRT = new THREE.WebGLRenderTarget(innerWidth * pr, innerHeight * pr, rtParams);
+
 // ── Point cloud ──
 const geometry = new THREE.BufferGeometry();
 const positions = new Float32Array(nCells * 3);
@@ -891,6 +1174,18 @@ geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 geometry.setAttribute('aColor', new THREE.BufferAttribute(colorsArr, 3));
 geometry.setAttribute('aSize', new THREE.BufferAttribute(sizesArr, 1));
 geometry.setAttribute('aCatOffset', new THREE.BufferAttribute(catOffsetArr, 1));
+
+// Per-cell random values for audio spread & displacement
+const cellRandom = new Float32Array(nCells);
+const cellRandomDir = new Float32Array(nCells * 3);
+for (let i = 0; i < nCells; i++) {
+  cellRandom[i] = Math.random();
+  const theta = Math.random() * 2 * Math.PI;
+  const phi = Math.acos(2 * Math.random() - 1);
+  cellRandomDir[i * 3]     = Math.sin(phi) * Math.cos(theta);
+  cellRandomDir[i * 3 + 1] = Math.sin(phi) * Math.sin(theta);
+  cellRandomDir[i * 3 + 2] = Math.cos(phi);
+}
 
 let basePtSize = 2.0;
 
@@ -973,6 +1268,29 @@ let geneScaleMode = 'linear';
 let geneIntensity = 1.0;
 const geneCache = {};
 
+// ── Audio reactivity state ──
+let audioCtx = null;
+let audioAnalyser = null;
+let audioStream = null;
+let audioEnabled = false;
+let audioFreqData = null;
+let audioPeakHold = false;
+let audioClusterMapping = false;
+let audioClusterCol = null;
+let audioExprWeight = false;
+let audioColormapName = 'viridis';
+let audioDisplacement = 0.5;
+
+// Per-band configuration
+// Fixed frequency ranges (standard audio engineering bands)
+const BAND_FREQ = { bass: [20, 250], mids: [250, 4000], highs: [4000, 20000] };
+const audioBands = {
+  bass:  { mapping: 'size',      sensitivity: 1.5, strength: 1.0, smoothing: 0.8, spread: 0, scale: 'linear', level: 0, peak: 0, _prevRaw: 0 },
+  mids:  { mapping: 'intensity', sensitivity: 1.5, strength: 1.0, smoothing: 0.8, spread: 0, scale: 'linear', level: 0, peak: 0, _prevRaw: 0 },
+  highs: { mapping: 'colormap',  sensitivity: 1.5, strength: 1.0, smoothing: 0.8, spread: 0, scale: 'linear', level: 0, peak: 0, _prevRaw: 0 },
+};
+let audioLevelFull = 0, audioPeakFull = 0;
+
 // Compute scaled expression from raw Uint8 data based on current scale mode + intensity
 function computeScaledExpression() {
   if (!activeGeneExpr) { activeGeneScaled = null; return; }
@@ -1022,7 +1340,7 @@ async function fetchGeneExpression(gene) {
   const info = geneIndex[gene];
   if (!info) return null;
   const [offset, length] = info;
-  const resp = await fetch('expression.bin', {
+  const resp = await fetch(DATA_PREFIX + 'expression.bin', {
     headers: { Range: `bytes=${offset}-${offset + length - 1}` }
   });
   const buf = await resp.arrayBuffer();
@@ -1036,6 +1354,206 @@ async function fetchGeneExpression(gene) {
   }
   geneCache[gene] = arr;
   return arr;
+}
+
+// ── Audio reactivity functions ──
+async function initAudio(deviceId) {
+  if (audioStream) { audioStream.getTracks().forEach(t => t.stop()); }
+  if (audioCtx) { await audioCtx.close(); }
+
+  const constraints = { audio: deviceId ? { deviceId: { exact: deviceId } } : true };
+  audioStream = await navigator.mediaDevices.getUserMedia(constraints);
+
+  audioCtx = new AudioContext();
+  const source = audioCtx.createMediaStreamSource(audioStream);
+  audioAnalyser = audioCtx.createAnalyser();
+  audioAnalyser.fftSize = 2048;
+  audioAnalyser.smoothingTimeConstant = 0; // we do per-band smoothing in JS
+  source.connect(audioAnalyser);
+
+  audioFreqData = new Uint8Array(audioAnalyser.frequencyBinCount);
+  updateAudioMeterStyle();
+}
+
+function stopAudio() {
+  if (audioStream) { audioStream.getTracks().forEach(t => t.stop()); audioStream = null; }
+  if (audioCtx) { audioCtx.close(); audioCtx = null; }
+  audioAnalyser = null;
+  audioFreqData = null;
+  audioLevelFull = 0; audioPeakFull = 0;
+  for (const key of ['bass', 'mids', 'highs']) {
+    audioBands[key].level = 0; audioBands[key].peak = 0; audioBands[key]._prevRaw = 0;
+  }
+}
+
+async function populateAudioDevices() {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const audioInputs = devices.filter(d => d.kind === 'audioinput');
+  const sel = document.getElementById('audio-device');
+  sel.innerHTML = audioInputs.map(d =>
+    `<option value="${d.deviceId}">${d.label || 'Microphone ' + d.deviceId.slice(0, 4)}</option>`
+  ).join('');
+}
+
+function populateClusterCols() {
+  const sel = document.getElementById('audio-cluster-col');
+  sel.innerHTML = colKeys.map(k =>
+    `<option value="${k}">${metaCols[k].label || k} (${metaCols[k].unique.length})</option>`
+  ).join('');
+  audioClusterCol = colKeys[0];
+}
+
+function hasDisplacementTarget() {
+  return audioBands.bass.mapping === 'displacement' ||
+         audioBands.mids.mapping === 'displacement' ||
+         audioBands.highs.mapping === 'displacement';
+}
+
+function getCellAudioLevel(i, band) {
+  let level = band.level;
+
+  // Cluster mapping: override band based on cell's cluster
+  if (audioClusterMapping && audioClusterCol && metaCols[audioClusterCol]) {
+    const col = metaCols[audioClusterCol];
+    const clusterIdx = col.unique.indexOf(col.values[i]);
+    const bandIdx = clusterIdx % 3;
+    const bands = [audioBands.bass, audioBands.mids, audioBands.highs];
+    level = bands[bandIdx].level;
+  }
+
+  // Per-band spread
+  if (band.spread > 0) {
+    level *= (1 - band.spread) + band.spread * cellRandom[i];
+  }
+
+  // Expression weight
+  if (audioExprWeight && activeGeneScaled) {
+    level *= (0.1 + activeGeneScaled[i] * 0.9);
+  }
+
+  // Per-band strength with scale curve
+  level *= band.strength;
+  if (level > 0) {
+    if (band.scale === 'log') level = Math.log1p(level * 9) / Math.log1p(9);
+    else if (band.scale === 'exp') level = level * level;
+  }
+
+  return level;
+}
+
+function applyAudioMapping(band, colors, sizes) {
+  if (band.level <= 0 && band.spread <= 0) return;
+  if (band.mapping === 'displacement') return;
+
+  if (band.mapping === 'colormap') {
+    const lut = COLORMAPS[audioColormapName];
+    for (let i = 0; i < nCells; i++) {
+      const v = Math.min(getCellAudioLevel(i, band), 1);
+      const idx = Math.round(v * 255);
+      colors[i * 3]     = lut[idx * 3];
+      colors[i * 3 + 1] = lut[idx * 3 + 1];
+      colors[i * 3 + 2] = lut[idx * 3 + 2];
+    }
+  } else if (band.mapping === 'intensity') {
+    for (let i = 0; i < nCells; i++) {
+      const e = 0.05 + Math.min(getCellAudioLevel(i, band), 1) * 0.95;
+      colors[i * 3]     *= e;
+      colors[i * 3 + 1] *= e;
+      colors[i * 3 + 2] *= e;
+    }
+  } else if (band.mapping === 'size') {
+    for (let i = 0; i < nCells; i++) {
+      sizes[i] *= (0.3 + Math.min(getCellAudioLevel(i, band), 1) * 1.7);
+    }
+  }
+}
+
+function applyAudioDisplacement() {
+  const pos = geometry.attributes.position.array;
+  const amount = audioDisplacement;
+  for (const key of ['bass', 'mids', 'highs']) {
+    const band = audioBands[key];
+    if (band.mapping !== 'displacement') continue;
+    for (let i = 0; i < nCells; i++) {
+      const v = getCellAudioLevel(i, band);
+      const d = v * amount;
+      pos[i * 3]     += cellRandomDir[i * 3]     * d;
+      pos[i * 3 + 1] += cellRandomDir[i * 3 + 1] * d;
+      pos[i * 3 + 2] += cellRandomDir[i * 3 + 2] * d;
+    }
+  }
+  geometry.attributes.position.needsUpdate = true;
+}
+
+function updateAudioMeterStyle() {
+  const lut = COLORMAPS[audioColormapName];
+  const stops = [0, 64, 128, 192, 255].map(idx => {
+    const r = Math.round(lut[idx * 3] * 255);
+    const g = Math.round(lut[idx * 3 + 1] * 255);
+    const b = Math.round(lut[idx * 3 + 2] * 255);
+    return `rgb(${r},${g},${b})`;
+  });
+  const grad = `linear-gradient(to right, ${stops.join(', ')})`;
+  for (const el of document.querySelectorAll('.audio-meter-fill')) {
+    el.style.background = grad;
+  }
+}
+
+function updateAudioMeters() {
+  document.getElementById('audio-meter-fill').style.width = (audioLevelFull * 100) + '%';
+  document.getElementById('audio-meter-bass').style.width = (audioBands.bass.level * 100) + '%';
+  document.getElementById('audio-meter-mids').style.width = (audioBands.mids.level * 100) + '%';
+  document.getElementById('audio-meter-highs').style.width = (audioBands.highs.level * 100) + '%';
+  document.getElementById('audio-meter-bass-inline').style.width = (audioBands.bass.level * 100) + '%';
+  document.getElementById('audio-meter-mids-inline').style.width = (audioBands.mids.level * 100) + '%';
+  document.getElementById('audio-meter-highs-inline').style.width = (audioBands.highs.level * 100) + '%';
+}
+
+function updateAudioReactivity() {
+  if (!audioEnabled || !audioAnalyser) return;
+  audioAnalyser.getByteFrequencyData(audioFreqData);
+
+  const binCount = audioFreqData.length;
+  const binHz = audioCtx.sampleRate / audioAnalyser.fftSize;
+
+  function rawBandLevel(lowHz, highHz) {
+    const s = Math.max(0, Math.floor(lowHz / binHz));
+    const e = Math.min(binCount, Math.ceil(highHz / binHz));
+    let sum = 0, n = 0;
+    for (let i = s; i < e; i++) { sum += audioFreqData[i]; n++; }
+    return n > 0 ? (sum / n) / 255 : 0;
+  }
+
+  // Full range for the ALL meter
+  let rawFull = rawBandLevel(20, 20000);
+  audioPeakFull = audioPeakHold ? (rawFull > audioPeakFull ? rawFull : audioPeakFull * 0.995) : rawFull;
+  audioLevelFull = audioPeakHold ? audioPeakFull : rawFull;
+
+  // Per-band processing
+  for (const key of ['bass', 'mids', 'highs']) {
+    const b = audioBands[key];
+    const [fLo, fHi] = BAND_FREQ[key];
+    let raw = rawBandLevel(fLo, fHi);
+
+    // Per-band sensitivity
+    if (raw > 0 && b.sensitivity !== 1.0) raw = Math.pow(raw, 1.0 / b.sensitivity);
+    raw = Math.min(raw, 1.0);
+
+    // Per-band smoothing (JS-side temporal smoothing)
+    const smoothed = b.smoothing * b._prevRaw + (1 - b.smoothing) * raw;
+    b._prevRaw = smoothed;
+    raw = smoothed;
+
+    // Peak hold
+    b.peak = audioPeakHold ? (raw > b.peak ? raw : b.peak * 0.995) : raw;
+    b.level = audioPeakHold ? b.peak : raw;
+  }
+
+  updateAudioMeters();
+
+  if (hasDisplacementTarget()) applyAudioDisplacement();
+
+  applyOverlay();
 }
 
 // ── Legend building (dynamic) ──
@@ -1132,6 +1650,13 @@ function applyOverlay() {
         sizes[i] = 0.1 + activeGeneScaled[i] * 1.9;
       }
     }
+  }
+
+  // Audio reactivity overlay (always multi-band)
+  if (audioEnabled && (audioBands.bass.level > 0 || audioBands.mids.level > 0 || audioBands.highs.level > 0)) {
+    applyAudioMapping(audioBands.bass, colors, sizes);
+    applyAudioMapping(audioBands.mids, colors, sizes);
+    applyAudioMapping(audioBands.highs, colors, sizes);
   }
 
   // Legend toggle (hide categories in the color-by column)
@@ -1577,6 +2102,111 @@ document.getElementById('gene-intensity').addEventListener('input', (e) => {
 });
 document.getElementById('gene-clear').addEventListener('click', clearGene);
 
+// ── Audio reactivity listeners ──
+function updateAudioVisibility() {
+  const needsCmap = audioBands.bass.mapping === 'colormap' || audioBands.mids.mapping === 'colormap' || audioBands.highs.mapping === 'colormap';
+  const needsDisplace = hasDisplacementTarget();
+  document.getElementById('audio-colormap').style.display = needsCmap ? '' : 'none';
+  document.getElementById('audio-displace-wrap').style.display = needsDisplace ? '' : 'none';
+}
+
+document.getElementById('audio-enable').addEventListener('change', async (e) => {
+  audioEnabled = e.target.checked;
+  const wrap = document.getElementById('audio-device-wrap');
+  const controls = document.getElementById('audio-controls');
+  if (audioEnabled) {
+    try {
+      await initAudio();
+      await populateAudioDevices();
+      wrap.style.display = '';
+      controls.style.display = '';
+    } catch (err) {
+      alert('Microphone access denied or unavailable.');
+      e.target.checked = false;
+      audioEnabled = false;
+    }
+  } else {
+    stopAudio();
+    wrap.style.display = 'none';
+    controls.style.display = 'none';
+    applyOverlay();
+  }
+});
+
+document.getElementById('audio-device').addEventListener('change', async (e) => {
+  if (audioEnabled) await initAudio(e.target.value);
+});
+
+document.getElementById('audio-colormap').addEventListener('change', (e) => {
+  audioColormapName = e.target.value;
+  updateAudioMeterStyle();
+});
+
+document.getElementById('audio-displacement').addEventListener('input', (e) => {
+  audioDisplacement = parseFloat(e.target.value);
+  document.getElementById('audio-displacement-val').textContent = audioDisplacement.toFixed(2);
+});
+
+document.getElementById('audio-peak-hold').addEventListener('change', (e) => {
+  audioPeakHold = e.target.checked;
+  if (!audioPeakHold) {
+    audioPeakFull = 0;
+    for (const key of ['bass', 'mids', 'highs']) { audioBands[key].peak = 0; }
+  }
+});
+
+document.getElementById('audio-cluster-map').addEventListener('change', (e) => {
+  audioClusterMapping = e.target.checked;
+  const colSel = document.getElementById('audio-cluster-col');
+  if (audioClusterMapping) {
+    populateClusterCols();
+    colSel.style.display = '';
+  } else {
+    colSel.style.display = 'none';
+  }
+});
+
+document.getElementById('audio-cluster-col').addEventListener('change', (e) => {
+  audioClusterCol = e.target.value;
+});
+
+document.getElementById('audio-expr-weight').addEventListener('change', (e) => {
+  audioExprWeight = e.target.checked;
+});
+
+// Per-band controls (factory pattern)
+for (const key of ['bass', 'mids', 'highs']) {
+  const b = audioBands[key];
+  const prefix = `audio-${key}`;
+
+  // Collapse toggle
+  document.getElementById(`${prefix}-header`).addEventListener('click', () => {
+    document.getElementById(`${prefix}-group`).classList.toggle('collapsed');
+  });
+
+  document.getElementById(`${prefix}-mapping`).addEventListener('change', (e) => {
+    b.mapping = e.target.value;
+    updateAudioVisibility();
+  });
+  document.getElementById(`${prefix}-scale`).addEventListener('change', (e) => { b.scale = e.target.value; });
+  document.getElementById(`${prefix}-sensitivity`).addEventListener('input', (e) => {
+    b.sensitivity = parseFloat(e.target.value);
+    document.getElementById(`${prefix}-sensitivity-val`).textContent = b.sensitivity.toFixed(1);
+  });
+  document.getElementById(`${prefix}-strength`).addEventListener('input', (e) => {
+    b.strength = parseFloat(e.target.value);
+    document.getElementById(`${prefix}-strength-val`).textContent = b.strength.toFixed(2);
+  });
+  document.getElementById(`${prefix}-smoothing`).addEventListener('input', (e) => {
+    b.smoothing = parseFloat(e.target.value);
+    document.getElementById(`${prefix}-smoothing-val`).textContent = b.smoothing.toFixed(2);
+  });
+  document.getElementById(`${prefix}-spread`).addEventListener('input', (e) => {
+    b.spread = parseFloat(e.target.value);
+    document.getElementById(`${prefix}-spread-val`).textContent = b.spread.toFixed(2);
+  });
+}
+
 // ── Render label helpers (show gene interaction context) ──
 function updateRenderLabels() {
   const sizeLabel = document.querySelector('#point-size').closest('.panel-section').querySelector('.panel-label');
@@ -1781,6 +2411,25 @@ document.getElementById('tracer-length').addEventListener('input', (e) => {
   tracerCount = parseInt(e.target.value);
   if (tracerCount > 0) ensureTracerFrames(tracerCount);
   document.getElementById('tracer-val').textContent = tracerCount === 0 ? 'Off' : tracerCount;
+});
+
+document.getElementById('fractal-enable').addEventListener('change', (e) => {
+  fractalEnabled = e.target.checked;
+  document.getElementById('fractal-section').style.display = fractalEnabled ? '' : 'none';
+  document.getElementById('fractal-zoom-section').style.display = fractalEnabled ? '' : 'none';
+  document.getElementById('fractal-intensity-section').style.display = fractalEnabled ? '' : 'none';
+});
+document.getElementById('fractal-symmetry').addEventListener('input', (e) => {
+  fractalMaterial.uniforms.uSymmetry.value = parseInt(e.target.value);
+  document.getElementById('fractal-symmetry-val').textContent = e.target.value;
+});
+document.getElementById('fractal-zoom').addEventListener('input', (e) => {
+  fractalMaterial.uniforms.uZoom.value = parseFloat(e.target.value);
+  document.getElementById('fractal-zoom-val').textContent = parseFloat(e.target.value).toFixed(1);
+});
+document.getElementById('fractal-intensity').addEventListener('input', (e) => {
+  fractalMaterial.uniforms.uIntensity.value = parseFloat(e.target.value);
+  document.getElementById('fractal-intensity-val').textContent = parseFloat(e.target.value).toFixed(2);
 });
 
 // Force all sliders and dropdowns to their default values on load (prevents browser caching)
@@ -2010,6 +2659,8 @@ function applyRecResolution() {
   const pr = Math.min(devicePixelRatio, 2);
   trailA.setSize(side * pr, side * pr);
   trailB.setSize(side * pr, side * pr);
+  fractalRT.setSize(side * pr, side * pr);
+  fractalMaterial.uniforms.uAspect.value = 1;
   for (const rt of tracerFrames) rt.setSize(side * pr, side * pr);
 }
 
@@ -2023,6 +2674,8 @@ function restoreRecResolution() {
   const pr = Math.min(devicePixelRatio, 2);
   trailA.setSize(recSavedWidth * pr, recSavedHeight * pr);
   trailB.setSize(recSavedWidth * pr, recSavedHeight * pr);
+  fractalRT.setSize(recSavedWidth * pr, recSavedHeight * pr);
+  fractalMaterial.uniforms.uAspect.value = recSavedWidth / recSavedHeight;
   for (const rt of tracerFrames) rt.setSize(recSavedWidth * pr, recSavedHeight * pr);
 }
 
@@ -2081,7 +2734,14 @@ function renderOneFrame() {
   const trailsActive = trailFade >= 0.01 || tracerCount > 0;
   composer.renderToScreen = false;
   composer.render();
-  const freshTexture = composer.readBuffer.texture;
+  let freshTexture = composer.readBuffer.texture;
+
+  if (fractalEnabled) {
+    fractalMaterial.uniforms.tScene.value = freshTexture;
+    renderer.setRenderTarget(fractalRT);
+    renderer.render(fractalScene, fsCamera);
+    freshTexture = fractalRT.texture;
+  }
 
   if (trailsActive) {
     if (tracerCount > 0) {
@@ -2301,13 +2961,27 @@ function animate(now) {
 
   // 360 rotation is handled by applyTimelineState() — driven by playhead
 
+  // Audio reactivity — update every frame
+  if (audioEnabled) {
+    if (!playing && hasDisplacementTarget()) setFrame(currentFrame);
+    updateAudioReactivity();
+  }
+
   orbitControls.update();
 
   const trailsActive = trailFade >= 0.01 || tracerCount > 0;
 
   composer.renderToScreen = false;
   composer.render();
-  const freshTexture = composer.readBuffer.texture;
+  let freshTexture = composer.readBuffer.texture;
+
+  // Fractal reflection pass
+  if (fractalEnabled) {
+    fractalMaterial.uniforms.tScene.value = freshTexture;
+    renderer.setRenderTarget(fractalRT);
+    renderer.render(fractalScene, fsCamera);
+    freshTexture = fractalRT.texture;
+  }
 
   if (trailsActive) {
     // Store current frame in ring buffer if tracers are on
@@ -2377,6 +3051,8 @@ window.addEventListener('resize', () => {
   const pr = Math.min(devicePixelRatio, 2);
   trailA.setSize(innerWidth * pr, innerHeight * pr);
   trailB.setSize(innerWidth * pr, innerHeight * pr);
+  fractalRT.setSize(innerWidth * pr, innerHeight * pr);
+  fractalMaterial.uniforms.uAspect.value = innerWidth / innerHeight;
   for (const rt of tracerFrames) rt.setSize(innerWidth * pr, innerHeight * pr);
 });
 </script>

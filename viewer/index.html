@@ -102,7 +102,7 @@ async function loadDatasets() {
       const nCells = meta.n_cells?.toLocaleString() || '?';
       const nFrames = meta.n_frames || '?';
       const nGenes = meta.gene_names?.length?.toLocaleString() || '?';
-      cards.push(`<a class="card" href="datasets/${id}/index.html">
+      cards.push(`<a class="card" href="viewer.html?dataset=${id}">
         <div class="card-title">${name}</div>
         <div class="card-detail">
           ${nCells} cells &middot; ${nGenes} genes<br>
@@ -178,7 +178,7 @@ folderInput.addEventListener('change', async () => {
     }
 
     status.textContent = 'Launching viewer...';
-    window.location.href = 'datasets/_local/index.html';
+    window.location.href = 'viewer.html?dataset=_local';
   } catch(e) {
     status.textContent = 'Error: ' + e.message;
   }

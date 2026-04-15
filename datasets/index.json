@@ -1,8 +1,1 @@
-[
-  "allcombined",
-  "brain_organoid",
-  "dorsal",
-  "glioblastoma",
-  "pbmc3k",
-  "ventral"
-]
+["pbmc3k"]

@@ -9,7 +9,7 @@ Interactive WebGL visualization of single-cell RNA sequencing data. Points are r
 <p align="center">
   <img src="media/interface.png" width="720" alt="Viewer interface">
 </p>
-<p align="center"><a href="https://github.com/GSNautilus/scAnimator/releases/download/v1.2.1/umap_warp_demo.webm">Download demo video (51MB)</a></p>
+<p align="center"><a href="https://github.com/GSNautilus/scAnimator/releases/download/v1.3.1/umap_warp_demo.webm">Download demo video (51MB)</a></p>
 
 ## Features
 
@@ -27,24 +27,25 @@ Interactive WebGL visualization of single-cell RNA sequencing data. Points are r
 ## Architecture
 
 ```
-scRNAseq/
-  build_viewer.py      # Python build script — generates all data files
-  code.Rmd             # R analysis notebook (Seurat preprocessing)
-  viewer/
-    index.html         # Three.js WebGL viewer (single file, no build step)
-    frames.bin         # Float32: animation frames (n_frames x n_cells x 3)
-    colors.bin         # Float32: RGB per cell (n_cells x 3)
-    expression.bin     # Uint8: all genes concatenated (28K genes x 45K cells)
-    gene_index.json    # Byte offsets for HTTP Range requests into expression.bin
-    gene_ranks.json    # Expression rank per gene (1 = highest)
-    metadata.json      # Cell metadata, palettes, labels
+scAnimator/
+  index.html               # Landing page — dataset picker + local folder upload
+  viewer.html              # Three.js WebGL viewer (single file, no build step)
+  datasets/                # One subdirectory per dataset
+    index.json             # Auto-generated dataset list
+    pbmc3k/                # Public demo dataset (tracked in git)
+      frames.bin, colors.bin, expression.bin, gene_index.json, metadata.json
+  scripts/
+    build_viewer.py        # Python build script — generates all data files
+    update_dataset_index.py  # Regenerates datasets/index.json
+  media/
+    logo.png
 ```
 
 ### Data pipeline
 
 1. **R** (code.Rmd) — Load Seurat object, run scType annotations, export PCA embeddings + sparse expression matrix + metadata to `export/`
-2. **Python** (build_viewer.py) — Compute 3D UMAP keyframes at varying `n_neighbors`, Procrustes-align them, cubic spline interpolate, quantize expression to uint8, write binary files
-3. **Browser** (viewer/index.html) — Load binary data via fetch, render with Three.js, gene expression fetched on demand via HTTP Range requests
+2. **Python** (scripts/build_viewer.py) — Compute 3D UMAP keyframes at varying `n_neighbors`, Procrustes-align them, cubic spline interpolate, quantize expression to uint8, write binary files
+3. **Browser** (viewer.html) — Load binary data via fetch, render with Three.js, gene expression fetched on demand via HTTP Range requests
 
 ### Rendering pipeline
 
@@ -69,7 +70,6 @@ umap-learn
 ### Viewing
 Any modern browser with WebGL2 support. Serve locally:
 ```bash
-cd viewer
 python -m http.server 8000
 # Open http://localhost:8000
 ```
@@ -81,7 +81,7 @@ To regenerate the viewer data from the Seurat object:
 1. Run the R notebook (`code.Rmd`) to export PCA, metadata, and expression to `export/`
 2. Run the build script:
    ```bash
-   python build_viewer.py
+   python scripts/build_viewer.py
    ```
    This takes ~10 minutes (UMAP computation + expression quantization for 28K genes).
 

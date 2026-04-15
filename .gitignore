@@ -7,7 +7,7 @@ datasets/*/gene_ranks.json
 datasets/*/metadata.json
 
 # Un-ignore pbmc3k (the only public dataset)
-!datasets/pbmc3k/
+!datasets/pbmc3k/*
 
 # Source data (not redistributable)
 *.RData

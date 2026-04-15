@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="media/logo.png" width="720" alt="scAnimator">
+  <img src="media/banner.png" width="720" alt="scAnimator">
 </p>
 
 # scAnimator

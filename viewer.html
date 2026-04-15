@@ -54,7 +54,7 @@
 
   UI LAYOUT
     Top center     - n_neighbors label
-    Left panel     - "scAnimator / v1.3.1" header, then:
+    Left panel     - "scAnimator / v1.4.0" header, then:
                      Color By dropdown, Filter section (column selector + checkboxes),
                      Gene Expression (autocomplete + mapping + colormap selectors),
                      Sliders: brightness, bloom, point size, trail length
@@ -362,7 +362,7 @@
     <h3>scAnimator <img src="media/logo.png" alt="" style="height:20px;vertical-align:middle;margin-left:2px;opacity:1"></h3>
     <button id="btn-datasets" title="Back to dataset selection" onclick="window.location.href='index.html'"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></button>
   </div>
-  <div class="panel-subtitle">v1.3.1</div>
+  <div class="panel-subtitle">v1.4.0</div>
 
   <div class="panel-group collapsed">
     <div class="panel-group-header" data-toggle="group">
@@ -966,7 +966,7 @@ progress(80, 'Initializing viewer...');
 
 // ── Dataset name ──
 if (META.name) {
-  document.querySelector('.panel-subtitle').textContent = META.name + ' \u2014 v1.3.1';
+  document.querySelector('.panel-subtitle').textContent = META.name + ' \u2014 v1.4.0';
   document.title = 'scAnimator \u2014 ' + META.name;
 }
 

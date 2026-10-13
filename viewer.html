@@ -771,6 +771,7 @@
 </div>
 
 <div id="util-buttons" style="display:none">
+  <button id="btn-storyboard" title="Load a storyboard (.json; or drop one on the page)">&#127902;</button>
   <button id="btn-reset-view" title="Reset view">&#x21BA;</button>
   <button id="btn-hide-ui" title="Toggle UI">&#128065;</button>
   <button id="btn-fullscreen" title="Toggle fullscreen">&#x26F6;</button>
@@ -1405,17 +1406,21 @@ let audioLevelFull = 0, audioPeakFull = 0;
 // Compute scaled expression from raw Uint8 data based on current scale mode + intensity
 function computeScaledExpression() {
   if (!activeGeneExpr) { activeGeneScaled = null; return; }
-  const raw = activeGeneExpr;
+  activeGeneScaled = scaleExpression(activeGeneExpr, geneScaleMode, geneIntensity);
+}
+
+// Pure: raw Uint8 expression -> Float32 0-1 by scale mode + intensity (gamma)
+function scaleExpression(raw, mode, intensity) {
   const n = raw.length;
   const scaled = new Float32Array(n);
 
-  if (geneScaleMode === 'log') {
+  if (mode === 'log') {
     // log1p scaling: log(1 + v) normalized to 0-1
     const logMax = Math.log1p(255);
     for (let i = 0; i < n; i++) {
       scaled[i] = Math.log1p(raw[i]) / logMax;
     }
-  } else if (geneScaleMode === 'quantile') {
+  } else if (mode === 'quantile') {
     // Rank-based: expressing cells mapped evenly across 0-1, zeros stay 0
     const expressing = [];
     for (let i = 0; i < n; i++) { if (raw[i] > 0) expressing.push(raw[i]); }
@@ -1436,14 +1441,14 @@ function computeScaledExpression() {
   }
 
   // Apply intensity as a power/gamma curve: values < 1 boost low expression, > 1 suppress it
-  if (geneIntensity !== 1.0) {
-    const gamma = 1.0 / geneIntensity;  // intensity > 1 = gamma < 1 = brighter low values
+  if (intensity !== 1.0) {
+    const gamma = 1.0 / intensity;  // intensity > 1 = gamma < 1 = brighter low values
     for (let i = 0; i < n; i++) {
       if (scaled[i] > 0) scaled[i] = Math.pow(scaled[i], gamma);
     }
   }
 
-  activeGeneScaled = scaled;
+  return scaled;
 }
 
 let _localExprBuf = null;
@@ -2588,13 +2593,15 @@ function drawRecHud(ctx, w, h) {
   const scale = h / 1080;  // scale text relative to 1080p
   const pad = 16 * scale;
 
-  // n_neighbors label — top center
-  const nnText = paramLabel.textContent;
-  ctx.font = `${Math.round(16 * scale)}px sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  ctx.fillText(nnText, w / 2, pad);
+  // n_neighbors label — top center (only while morphing: a held frame needs no label)
+  if (morphActive) {
+    const nnText = paramLabel.textContent;
+    ctx.font = `${Math.round(16 * scale)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.fillText(nnText, w / 2, pad);
+  }
 
   // Legend — top right
   const legendItems = legendEl.querySelectorAll('.legend-item:not(.disabled)');
@@ -3018,6 +3025,572 @@ btnRecord.addEventListener('click', () => {
 // Both modes now use stepped frame export, so all options apply to both
 
 
+// ── Storyboard (scripted, captioned videos) ──
+// A storyboard is JSON: a list of steps, each a view (colour by a metadata column
+// or "gene:<name>", filter as {column: [values shown]}, a held n_neighbors frame,
+// legend, caption) held for whole turns of the camera and reached from the step
+// before by a transition (cells fade in/out, colours cross-fade, the frame morphs
+// if n_neighbors changes, caption and legend fade). Steps inherit SB_INHERIT
+// fields from the step before (a step's `filter` replaces the old one whole);
+// captions are per step. The camera turns on its own clock through every step.
+// Live (presenting here): load with ?storyboard=<url>, the film-strip button or
+// by dropping the .json on the page; each step holds, turning, until you go on
+// (Right / Down / PageDown / Space; back: Left / Up / PageUp; Home: the first),
+// and the transition starts from wherever the camera is. A storyboard pins the
+// render settings it names and turns the other effects off; Reset view leaves
+// it, putting the viewer back as it was before (sbUnload).
+// Rendered: window.storyboard.load(json) / plan() / frame(t), driven by
+// scripts/render_storyboard.py; there a hold is whole turns of the camera, so
+// each hold clip loops seamlessly. Captions and the legend come from
+// sbDrawHud(): into rendered frames, and onto an overlay canvas here.
+
+const SB_DEFAULTS = {
+  fps: 30, size: 1080,
+  turn_seconds: 24,            // one full turn of the camera; a hold is `turns` of these
+  transition_seconds: 2,
+  color_by: 'cell_type', filter: {},
+  n_neighbors: 40,             // the held frame (no morph)
+  legend: true, legend_counts: false,
+  colormap: 'viridis', gene_scale: 'linear', gene_intensity: 1,
+  // A step's `gene` (per step, not inherited) maps that gene's expression onto the
+  // categorical colours like the panel's Gene Mapping: 'size' (0.1x..2x) or 'intensity'
+  gene_mapping: 'size',
+  // distance / target "auto": fit the cloud (98% of cells) in view as it turns; zoom > 1 = closer
+  camera: { distance: 'auto', target: 'auto', zoom: 1, elevation: 10, start_angle: 0 },
+  // The panel's render settings: point_size, brightness, bloom (left as they are
+  // unless named), dof, trails, tracers, fractal (off unless named)
+  render: {},
+  colors: {},                  // {column: {value: '#rrggbb'}} palette overrides
+  style: { caption_size: 44, subcaption_size: 26, legend_size: 20, legend_side: 'right' },
+};
+const SB_INHERIT = ['color_by', 'filter', 'n_neighbors', 'legend', 'colormap', 'gene_scale', 'gene_intensity', 'gene_mapping'];
+
+let sb = null;            // the compiled storyboard
+let sbClock = 0;          // live: the camera's clock, seconds (runs while playing)
+let sbLive = { from: 0, to: 0, start: 0 };  // live: showing step `to`, fading in from `from` since `start`
+let sbRendering = false;  // window.storyboard.frame() is driving the renderer
+let sbApplied = null;     // key of the cell state last written to the geometry
+let sbOverlay = null;     // preview: 2D canvas over the WebGL one
+let sbCapture = null;     // render: the composited frame
+
+function sbRgb(c) {
+  if (Array.isArray(c)) return c;
+  const h = String(c).replace('#', '');
+  return [0, 2, 4].map(o => parseInt(h.slice(o, o + 2), 16) / 255);
+}
+function sbCss(rgb, a = 1) { return `rgba(${rgb.map(v => Math.round(v * 255)).join(',')},${a})`; }
+const sbClamp = x => Math.max(0, Math.min(1, x));
+const sbEase = x => x * x * (3 - 2 * x);
+
+// First frame whose n_neighbors is nearest nn
+function sbFrameFor(nn) {
+  let best = 0, bestD = Infinity;
+  for (let f = 0; f < nFrames; f++) {
+    const d = Math.abs(parseFloat(META.nn_labels[f]) - nn);
+    if (d < bestD) { bestD = d; best = f; }
+  }
+  return best;
+}
+
+// One step's target cell state: colours, sizes (0 = filtered out), frame, legend
+async function sbBuildState(st, cfg) {
+  const where = `step "${st.name}"`;
+  const shown = [];
+  for (const [colName, vals] of Object.entries(st.filter || {})) {
+    const col = metaCols[colName];
+    if (!col) throw new Error(`${where}: no column "${colName}" (have ${colKeys.join(', ')})`);
+    const list = Array.isArray(vals) ? vals : [vals];
+    for (const v of list) {
+      if (!col.unique.includes(v)) throw new Error(`${where}: "${v}" is not a value of ${colName} (${col.unique.join(', ')})`);
+    }
+    shown.push([col.values, new Set(list)]);
+  }
+  const colors = new Float32Array(nCells * 3);
+  const sizes = new Float32Array(nCells);
+  let nVisible = 0;
+  for (let i = 0; i < nCells; i++) {
+    let ok = 1;
+    for (const [values, set] of shown) if (!set.has(values[i])) { ok = 0; break; }
+    sizes[i] = ok;
+    nVisible += ok;
+  }
+
+  let legend;
+  const cb = st.color_by;
+  if (cb.startsWith('gene:')) {
+    if (st.gene) throw new Error(`${where}: "gene" maps onto categorical colours; this step colours by ${cb}`);
+    const gene = cb.slice(5);
+    const raw = await fetchGeneExpression(gene);
+    if (!raw) throw new Error(`${where}: no gene "${gene}"`);
+    const lut = COLORMAPS[st.colormap];
+    if (!lut) throw new Error(`${where}: no colormap "${st.colormap}" (have ${Object.keys(COLORMAPS).join(', ')})`);
+    const scaled = scaleExpression(raw, st.gene_scale, st.gene_intensity);
+    for (let i = 0; i < nCells; i++) {
+      const v = Math.round(scaled[i] * 255);
+      colors[i * 3] = lut[v * 3]; colors[i * 3 + 1] = lut[v * 3 + 1]; colors[i * 3 + 2] = lut[v * 3 + 2];
+    }
+    legend = { gene, colormap: st.colormap };
+  } else {
+    const col = metaCols[cb];
+    if (!col) throw new Error(`${where}: can't colour by "${cb}" (have ${colKeys.join(', ')}, or gene:<name>)`);
+    const pal = { ...colPalettes[cb] };
+    for (const [v, c] of Object.entries(cfg.colors[cb] || {})) {
+      if (!col.unique.includes(v)) throw new Error(`colors.${cb}: "${v}" is not a value of ${cb}`);
+      pal[v] = sbRgb(c);
+    }
+    const counts = {};
+    for (let i = 0; i < nCells; i++) {
+      const v = col.values[i];
+      const rgb = pal[v] || [0.5, 0.5, 0.5];
+      colors[i * 3] = rgb[0]; colors[i * 3 + 1] = rgb[1]; colors[i * 3 + 2] = rgb[2];
+      if (sizes[i]) counts[v] = (counts[v] || 0) + 1;
+    }
+    legend = { items: col.unique.filter(v => counts[v]).map(v => ({ label: v, rgb: pal[v] || [0.5, 0.5, 0.5], count: counts[v] })) };
+    if (st.gene) {
+      // The panel's Gene Mapping size / intensity modes, on top of the categorical colours
+      if (!['size', 'intensity'].includes(st.gene_mapping)) throw new Error(`${where}: gene_mapping "${st.gene_mapping}" (have size, intensity)`);
+      const raw = await fetchGeneExpression(st.gene);
+      if (!raw) throw new Error(`${where}: no gene "${st.gene}"`);
+      const scaled = scaleExpression(raw, st.gene_scale, st.gene_intensity);
+      if (st.gene_mapping === 'size') {
+        for (let i = 0; i < nCells; i++) if (sizes[i]) sizes[i] = 0.1 + scaled[i] * 1.9;
+      } else {
+        for (let i = 0; i < nCells; i++) {
+          const e = 0.05 + scaled[i] * 0.95;
+          colors[i * 3] *= e; colors[i * 3 + 1] *= e; colors[i * 3 + 2] *= e;
+        }
+      }
+      legend.mapped = { gene: st.gene, mapping: st.gene_mapping };
+    }
+  }
+  if (!st.legend) legend = null;
+  return { colors, sizes, frame: sbFrameFor(st.n_neighbors), legend, legendKey: JSON.stringify(legend), nVisible };
+}
+
+async function sbCompile(json) {
+  const cfg = {
+    ...SB_DEFAULTS, ...json,
+    camera: { ...SB_DEFAULTS.camera, ...(json.camera || {}) },
+    style: { ...SB_DEFAULTS.style, ...(json.style || {}) },
+    render: { ...(json.render || {}) },
+    colors: { ...(json.colors || {}) },
+  };
+  if (!Array.isArray(cfg.steps) || !cfg.steps.length) throw new Error('storyboard has no steps');
+  const steps = [];
+  let prev = cfg;
+  for (const [i, raw] of cfg.steps.entries()) {
+    const st = { name: raw.name || `step${i + 1}`, caption: raw.caption || '', subcaption: raw.subcaption || '', gene: raw.gene || '' };
+    for (const k of SB_INHERIT) st[k] = k in raw ? raw[k] : prev[k];
+    st.transition = raw.transition ?? cfg.transition_seconds;
+    st.turns = raw.turns ?? 1;
+    steps.push(st);
+    prev = st;
+  }
+  // Timeline: step 1's hold, then for each later step its transition and hold
+  const segs = [];
+  let t = 0;
+  for (const [i, st] of steps.entries()) {
+    if (i > 0 && st.transition > 0) { segs.push({ kind: 'in', step: i, start: t, dur: st.transition }); t += st.transition; }
+    const hold = st.turns * cfg.turn_seconds;
+    segs.push({ kind: 'hold', step: i, start: t, dur: hold });
+    t += hold;
+  }
+  const states = [];
+  for (const st of steps) states.push(await sbBuildState(st, cfg));
+  const fit = sbFit([...new Set(states.map(s => s.frame))]);
+  const cam = cfg.camera;
+  if (cam.target === 'auto') cam.target = fit.center;
+  if (cam.distance === 'auto') cam.distance = fit.radius / Math.sin(camera.fov * Math.PI / 360) * 1.08 / (cam.zoom || 1);
+  return { ...cfg, steps, segs, states, total: t, fit };
+}
+
+// Centre and radius (98th percentile from the centre) of the cells over these frames
+function sbFit(frameIdx) {
+  const c = [0, 0, 0];
+  for (const f of frameIdx) {
+    const fr = frames[f];
+    for (let i = 0; i < nCells; i++) { c[0] += fr[i * 3]; c[1] += fr[i * 3 + 1]; c[2] += fr[i * 3 + 2]; }
+  }
+  for (let j = 0; j < 3; j++) c[j] /= nCells * frameIdx.length;
+  const d = new Float32Array(nCells * frameIdx.length);
+  let n = 0;
+  for (const f of frameIdx) {
+    const fr = frames[f];
+    for (let i = 0; i < nCells; i++) d[n++] = Math.hypot(fr[i * 3] - c[0], fr[i * 3 + 1] - c[1], fr[i * 3 + 2] - c[2]);
+  }
+  d.sort();
+  return { center: c, radius: d[Math.floor(d.length * 0.98)] };
+}
+
+function sbSegAt(t) {
+  for (const s of sb.segs) if (t < s.start + s.dur) return s;
+  return sb.segs[sb.segs.length - 1];
+}
+// A view: showing step b, faded in from step a by p (0..1; a === b: holding)
+// Rendered: from the timeline at time t
+function sbViewAt(t) {
+  const seg = sbSegAt(t);
+  if (seg.kind !== 'in') return { a: seg.step, b: seg.step, p: 1 };
+  return { a: seg.step - 1, b: seg.step, p: sbClamp((t - seg.start) / seg.dur) };
+}
+
+// Live: from the presenter's place; a finished transition becomes a hold
+function sbLiveView() {
+  const L = sbLive;
+  if (L.from !== L.to) {
+    const dur = sb.steps[Math.max(L.from, L.to)].transition;
+    const p = dur > 0 ? (sbClock - L.start) / dur : 1;
+    if (p < 1) return { a: L.from, b: L.to, p: sbClamp(p) };
+    L.from = L.to;
+  }
+  return { a: L.to, b: L.to, p: 1 };
+}
+
+// Live: go to step i (a press during a transition finishes it first)
+function sbGo(i) {
+  i = Math.max(0, Math.min(sb.steps.length - 1, i));
+  sbLiveView();
+  if (i === sbLive.to) return;
+  sbLive = { from: sbLive.to, to: i, start: sbClock };
+}
+
+// Put the view on screen: cells and frame from the view, camera from camT (s)
+function sbApply(view, camT) {
+  const to = sb.states[view.b];
+  const from = sb.states[view.a];
+  const k = sbEase(view.p);
+  const key = from === to ? `${view.b}` : `${view.a}>${view.b}:${k}`;
+  if (key !== sbApplied) {
+    const colors = geometry.attributes.aColor.array;
+    const sizes = geometry.attributes.aSize.array;
+    if (from === to) {
+      colors.set(to.colors);
+      sizes.set(to.sizes);
+    } else {
+      for (let i = 0; i < nCells * 3; i++) colors[i] = from.colors[i] + (to.colors[i] - from.colors[i]) * k;
+      for (let i = 0; i < nCells; i++) sizes[i] = from.sizes[i] + (to.sizes[i] - from.sizes[i]) * k;
+    }
+    geometry.attributes.aColor.needsUpdate = true;
+    geometry.attributes.aSize.needsUpdate = true;
+    setFrame(from.frame + (to.frame - from.frame) * k);
+    sbApplied = key;
+  }
+  const c = sb.camera;
+  const a = (c.start_angle + 360 * camT / sb.turn_seconds) * Math.PI / 180;
+  const e = c.elevation * Math.PI / 180;
+  const tg = new THREE.Vector3(...c.target);
+  camera.up.set(0, 1, 0);
+  camera.position.set(
+    tg.x + c.distance * Math.cos(e) * Math.sin(a),
+    tg.y + c.distance * Math.sin(e),
+    tg.z + c.distance * Math.cos(e) * Math.cos(a));
+  orbitControls.target.copy(tg);
+  camera.lookAt(tg);
+}
+
+// Word-wrap text to maxW at the context's current font
+function sbWrap(ctx, text, maxW) {
+  const lines = [];
+  let line = '';
+  for (const word of text.split(/\s+/)) {
+    const tryLine = line ? line + ' ' + word : word;
+    if (line && ctx.measureText(tryLine).width > maxW) { lines.push(line); line = word; }
+    else line = tryLine;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function sbDrawCaption(ctx, w, h, s, st, alpha) {
+  if (alpha <= 0 || (!st.caption && !st.subcaption)) return;
+  const cs = sb.style.caption_size * s, ss = sb.style.subcaption_size * s;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.shadowColor = 'rgba(0,0,0,0.9)';
+  ctx.shadowBlur = 14 * s;
+  ctx.font = `${ss}px "Segoe UI", sans-serif`;
+  const sub = st.subcaption ? sbWrap(ctx, st.subcaption, w * 0.88) : [];
+  ctx.font = `600 ${cs}px "Segoe UI", sans-serif`;
+  const cap = st.caption ? sbWrap(ctx, st.caption, w * 0.88) : [];
+  let y = h - 52 * s - sub.length * ss * 1.3;
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  for (let i = cap.length - 1; i >= 0; i--) { ctx.fillText(cap[i], w / 2, y); y -= cs * 1.2; }
+  ctx.font = `${ss}px "Segoe UI", sans-serif`;
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  y = h - 52 * s - (sub.length - 1) * ss * 1.3;
+  for (const line of sub) { ctx.fillText(line, w / 2, y); y += ss * 1.3; }
+  ctx.restore();
+}
+
+function sbDrawLegend(ctx, w, h, s, legend, alpha) {
+  if (alpha <= 0 || !legend) return;
+  const right = sb.style.legend_side !== 'left';
+  const pad = 32 * s;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.shadowColor = 'rgba(0,0,0,0.9)';
+  ctx.shadowBlur = 8 * s;
+  ctx.textBaseline = 'middle';
+  if (legend.gene) {
+    // Colour bar: gene name over a low-to-high strip
+    const fs = sb.style.legend_size * s, bw = 220 * s, bh = 12 * s;
+    const x0 = right ? w - pad - bw : pad;
+    ctx.font = `italic 600 ${fs * 1.2}px "Segoe UI", sans-serif`;
+    ctx.textAlign = right ? 'right' : 'left';
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.fillText(legend.gene, right ? w - pad : pad, pad + fs * 0.6);
+    const lut = COLORMAPS[legend.colormap];
+    const y0 = pad + fs * 1.5;
+    ctx.shadowBlur = 0;
+    for (let x = 0; x < bw; x++) {
+      const i = Math.round((x / (bw - 1)) * 255);
+      ctx.fillStyle = sbCss([lut[i * 3], lut[i * 3 + 1], lut[i * 3 + 2]]);
+      ctx.fillRect(x0 + x, y0, 1.5, bh);
+    }
+    ctx.font = `${fs * 0.8}px "Segoe UI", sans-serif`;
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.textAlign = 'left';
+    ctx.fillText('low', x0, y0 + bh + fs * 0.7);
+    ctx.textAlign = 'right';
+    ctx.fillText('high', x0 + bw, y0 + bh + fs * 0.7);
+    ctx.restore();
+    return;
+  }
+  const items = legend.items;
+  // Shrink to fit two thirds of the height
+  const fs = Math.min(sb.style.legend_size * s, (h * 0.66) / (items.length * 1.55));
+  const lineH = fs * 1.55, dotR = fs * 0.36;
+  ctx.font = `${fs}px "Segoe UI", sans-serif`;
+  let y = pad + lineH / 2;
+  for (const it of items) {
+    const label = sb.legend_counts ? `${it.label}  ${it.count.toLocaleString()}` : it.label;
+    const tw = ctx.measureText(label).width;
+    const x = right ? w - pad - tw - dotR * 2 - fs * 0.5 : pad;
+    ctx.beginPath();
+    ctx.arc(x + dotR, y, dotR, 0, Math.PI * 2);
+    ctx.fillStyle = sbCss(it.rgb);
+    ctx.fill();
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+    ctx.fillText(label, x + dotR * 2 + fs * 0.5, y);
+    y += lineH;
+  }
+  if (legend.mapped) {
+    // "Size: PAX3" under the categories
+    const label = `${legend.mapped.mapping === 'size' ? 'Size' : 'Brightness'}: `;
+    ctx.font = `${fs}px "Segoe UI", sans-serif`;
+    const lw = ctx.measureText(label).width;
+    ctx.font = `italic 600 ${fs}px "Segoe UI", sans-serif`;
+    const gw = ctx.measureText(legend.mapped.gene).width;
+    const x = right ? w - pad - lw - gw : pad;
+    y += lineH * 0.4;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.font = `${fs}px "Segoe UI", sans-serif`;
+    ctx.fillText(label, x, y);
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.font = `italic 600 ${fs}px "Segoe UI", sans-serif`;
+    ctx.fillText(legend.mapped.gene, x + lw, y);
+  }
+  ctx.restore();
+}
+
+// Captions and legend for a view; in a transition the old ones fade out over its
+// first half and the new ones in over its second (unchanged ones stay put)
+function sbDrawHud(ctx, w, h, view) {
+  const s = h / 1080;
+  const p = view.p;
+  const cur = sb.steps[view.b], curS = sb.states[view.b];
+  const prev = view.a !== view.b ? sb.steps[view.a] : null;
+  const prevS = prev ? sb.states[view.a] : null;
+  const out = sbClamp(1 - 2 * p), inn = sbClamp(2 * p - 1);
+  if (prev && (prev.caption !== cur.caption || prev.subcaption !== cur.subcaption)) {
+    sbDrawCaption(ctx, w, h, s, prev, out);
+    sbDrawCaption(ctx, w, h, s, cur, inn);
+  } else sbDrawCaption(ctx, w, h, s, cur, 1);
+  if (prevS && prevS.legendKey !== curS.legendKey) {
+    sbDrawLegend(ctx, w, h, s, prevS.legend, out);
+    sbDrawLegend(ctx, w, h, s, curS.legend, inn);
+  } else sbDrawLegend(ctx, w, h, s, curS.legend, 1);
+}
+
+// Live: draw the HUD over the whole window
+function sbDrawOverlay(view) {
+  if (!sbOverlay) {
+    sbOverlay = document.createElement('canvas');
+    sbOverlay.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:5';
+    document.body.appendChild(sbOverlay);
+  }
+  const dpr = devicePixelRatio || 1;
+  const W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
+  if (sbOverlay.width !== W || sbOverlay.height !== H) { sbOverlay.width = W; sbOverlay.height = H; }
+  const ctx = sbOverlay.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  sbDrawHud(ctx, W, H, view);
+  // The viewer's own labels describe the panel's view, not the storyboard's
+  // (kept hidden here: the Toggle UI button would bring them back)
+  for (const id of ['legend', 'param-label', 'gene-colorbar']) document.getElementById(id).style.visibility = 'hidden';
+}
+
+// Live: one frame of the render loop
+function sbLiveTick(dt) {
+  if (playing) sbClock += dt;
+  const view = sbLiveView();
+  sbApply(view, sbClock);
+  sbDrawOverlay(view);
+}
+
+function sbPlan() {
+  const warnings = [];
+  const perTurn = sb.turn_seconds * sb.fps;
+  if (Math.abs(perTurn - Math.round(perTurn)) > 1e-6) warnings.push(`turn_seconds x fps = ${perTurn}, not whole frames: holds won't loop exactly`);
+  return {
+    fps: sb.fps, size: sb.size, total: sb.total, turn_seconds: sb.turn_seconds, warnings,
+    camera: { distance: sb.camera.distance, target: sb.camera.target, fit_radius: sb.fit.radius },
+    segments: sb.segs.map(s => ({ kind: s.kind, step: s.step, name: sb.steps[s.step].name, start: s.start, dur: s.dur, frames: Math.round(s.dur * sb.fps) })),
+    steps: sb.steps.map((st, i) => ({ name: st.name, caption: st.caption, color_by: st.color_by, gene: st.gene, gene_mapping: st.gene_mapping, cells: sb.states[i].nVisible, frame: sb.states[i].frame, n_neighbors: META.nn_labels[sb.states[i].frame] })),
+  };
+}
+
+// The viewer's own settings a storyboard changes, kept to put back on leaving it
+const SB_RENDER_IDS = ['point-size', 'brightness', 'bloom-strength', 'dof-amount', 'decay-time', 'tracer-length'];
+let sbSaved = null;
+
+async function sbLoad(json) {
+  const compiled = await sbCompile(json);   // throws before the view is touched
+  if (!sb) {
+    sbSaved = {
+      morphActive, rotating360, frame: currentFrame, uiHidden, playing,
+      sliders: SB_RENDER_IDS.map(id => [id, document.getElementById(id).value]),
+      fractal: document.getElementById('fractal-enable').checked,
+    };
+  }
+  sb = compiled;
+  sbClock = 0;
+  sbLive = { from: 0, to: 0, start: 0 };
+  sbApplied = null;
+  morphActive = false; btnMorph.classList.remove('active');
+  rotating360 = false; btnRotate.classList.remove('active');
+  playing = true; btnPlay.textContent = 'Pause';   // the camera turns from the start
+  disableGradientGPU();
+  recFps = sb.fps;
+  // Render settings through the panel's own controls (so it shows them);
+  // the effects are off unless the storyboard names them
+  const sliders = {
+    point_size: ['point-size'], brightness: ['brightness'], bloom: ['bloom-strength'],
+    dof: ['dof-amount', 0], trails: ['decay-time', 0], tracers: ['tracer-length', 0],
+  };
+  for (const [k, [id, off]] of Object.entries(sliders)) {
+    if (!(k in sb.render) && off === undefined) continue;
+    const el = document.getElementById(id);
+    el.value = k in sb.render ? sb.render[k] : off;
+    el.dispatchEvent(new Event('input'));
+  }
+  const fractal = document.getElementById('fractal-enable');
+  fractal.checked = !!sb.render.fractal;
+  fractal.dispatchEvent(new Event('change'));
+  for (const id of ['legend', 'param-label', 'gene-colorbar']) document.getElementById(id).style.visibility = 'hidden';
+  if (!uiHidden) document.getElementById('btn-hide-ui').click();
+  sbApply(sbViewAt(0), 0);
+  return sbPlan();
+}
+
+// Leave the storyboard: the viewer as it was before it was loaded (Reset view)
+function sbUnload() {
+  if (!sb) return;
+  sb = null;
+  sbApplied = null;
+  sbRendering = false;
+  if (sbOverlay) { sbOverlay.remove(); sbOverlay = null; }
+  const s = sbSaved;
+  morphActive = s.morphActive; btnMorph.classList.toggle('active', morphActive);
+  playing = s.playing; btnPlay.textContent = playing ? 'Pause' : 'Play';
+  for (const [id, v] of s.sliders) {
+    const el = document.getElementById(id);
+    el.value = v;
+    el.dispatchEvent(new Event('input'));
+  }
+  const fractal = document.getElementById('fractal-enable');
+  fractal.checked = s.fractal;
+  fractal.dispatchEvent(new Event('change'));
+  for (const id of ['legend', 'param-label', 'gene-colorbar']) document.getElementById(id).style.visibility = '';
+  if (uiHidden !== s.uiHidden) document.getElementById('btn-hide-ui').click();
+  if (isGradientMode()) setupGradientGPU();
+  applyOverlay();          // colours and filters from the panel again
+  setFrame(s.frame);
+  applyTimelineState();
+}
+
+// Render the frame at storyboard time t and return it as a data URL
+function sbFrame(t, type = 'image/png', quality = 0.95) {
+  sbRendering = true;
+  const view = sbViewAt(t);
+  sbApply(view, t);
+  renderOneFrame();
+  const src = renderer.domElement;
+  const side = Math.min(src.width, src.height);
+  if (!sbCapture) sbCapture = document.createElement('canvas');
+  if (sbCapture.width !== sb.size) { sbCapture.width = sb.size; sbCapture.height = sb.size; }
+  const ctx = sbCapture.getContext('2d');
+  ctx.drawImage(src, (src.width - side) / 2, (src.height - side) / 2, side, side, 0, 0, sb.size, sb.size);
+  sbDrawHud(ctx, sb.size, sb.size, view);
+  return sbCapture.toDataURL(type, quality);
+}
+
+// Live keys (presentation clickers send PageDown / PageUp)
+const SB_NEXT = ['ArrowRight', 'ArrowDown', 'PageDown', ' '];
+const SB_BACK = ['ArrowLeft', 'ArrowUp', 'PageUp'];
+addEventListener('keydown', (e) => {
+  if (!sb || sbRendering || e.target.closest('input, select, textarea, button')) return;
+  if (SB_NEXT.includes(e.key)) sbGo(sbLive.to + 1);
+  else if (SB_BACK.includes(e.key)) sbGo(sbLive.to - 1);
+  else if (e.key === 'Home') sbGo(0);
+  else return;
+  e.preventDefault();
+});
+
+// Load a storyboard file: the film-strip button, or dropped on the page
+async function sbLoadFile(file) {
+  try {
+    await sbLoad(JSON.parse(await file.text()));
+  } catch (e) {
+    console.error('Storyboard:', e);
+    alert('Storyboard: ' + e.message);
+  }
+}
+const sbFileInput = document.createElement('input');
+sbFileInput.type = 'file';
+sbFileInput.accept = '.json,application/json';
+sbFileInput.addEventListener('change', () => {
+  if (sbFileInput.files[0]) sbLoadFile(sbFileInput.files[0]);
+  sbFileInput.value = '';
+});
+document.getElementById('btn-storyboard').addEventListener('click', (e) => {
+  e.currentTarget.blur();   // or Space (next step) would press it again
+  sbFileInput.click();
+});
+addEventListener('dragover', (e) => e.preventDefault());
+addEventListener('drop', (e) => {
+  const file = [...(e.dataTransfer?.files || [])].find(f => f.name.toLowerCase().endsWith('.json'));
+  if (!file) return;
+  e.preventDefault();
+  sbLoadFile(file);
+});
+
+window.storyboard = {
+  load: sbLoad,
+  plan: sbPlan,
+  frame: sbFrame,
+  play() { sbRendering = false; },
+  gpu() {
+    const gl = renderer.getContext();
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    return ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+  },
+};
+
 
 // ── Init + show UI ──
 setFrame(0);
@@ -3050,9 +3623,13 @@ document.getElementById('btn-hide-ui').addEventListener('click', () => {
 });
 
 document.getElementById('btn-reset-view').addEventListener('click', () => {
+  const leaving = !!sb;
+  sbUnload();   // a storyboard ends here: back to the normal viewer
   camera.position.copy(initialCameraPos);
   orbitControls.target.copy(initialTarget);
   orbitControls.update();
+  // 360 rotation was on before the storyboard: turn it on again from here
+  if (leaving && sbSaved.rotating360) btnRotate.click();
 });
 
 document.getElementById('btn-fullscreen').addEventListener('click', () => {
@@ -3069,7 +3646,8 @@ let lastRenderTime = performance.now();
 function animate(now) {
   requestAnimationFrame(animate);
 
-  let dt = (now - lastRenderTime) / 1000;
+  // rAF's timestamp can precede the last performance.now() on the first frame
+  let dt = Math.max(0, (now - lastRenderTime) / 1000);
   lastRenderTime = now;
 
   // Lock to fixed timestep during stepped export so animation speed is consistent
@@ -3085,7 +3663,11 @@ function animate(now) {
   }
 
   // ── Advance master timeline ──
-  if (playing && !frameExportRunning) {
+  // A loaded storyboard owns the view: it plays on its own clock, or (while
+  // window.storyboard.frame renders clips) nothing advances here at all.
+  if (sb) {
+    if (!sbRendering) sbLiveTick(dt);
+  } else if (playing && !frameExportRunning) {
     const prevLoopTime = loopTime;
     loopTime += dt;
 
@@ -3111,7 +3693,7 @@ function animate(now) {
   // During stepped export, renderOneFrame() handles all rendering
   // (including trails) and outputs to screen. Skip the rAF render
   // to prevent extra trail fade passes between export steps.
-  if (frameExportRunning) return;
+  if (frameExportRunning || sbRendering) return;
 
   orbitControls.update();
 
@@ -3220,6 +3802,18 @@ window.addEventListener('resize', () => {
   fractalRT.setSize(innerWidth * pr, innerHeight * pr);
   for (const rt of tracerFrames) rt.setSize(innerWidth * pr, innerHeight * pr);
 });
+
+// ?storyboard=<url>: present a storyboard here (last, once every control exists)
+if (urlParams.get('storyboard')) {
+  try {
+    const resp = await fetch(urlParams.get('storyboard'));
+    await sbLoad(await resp.json());
+  } catch (e) {
+    console.error('Storyboard:', e);
+    alert('Storyboard: ' + e.message);
+  }
+}
+window.storyboard.ready = true;
 </script>
 </body>
 </html>

@@ -14,6 +14,8 @@ it one at a time, encoding them with ffmpeg (imageio-ffmpeg's bundled binary).
     ... --only a,b   just these steps (by name)
     ... --preview    opens a window playing it live (arrow keys jump steps); close it to quit
 
+Slide images are paths relative to the storyboard; they're read here and
+handed to the viewer inline.
 Outputs go to <storyboard dir>/<storyboard name>/ unless --out is given. They
 show real data: keep them out of this repository.
 Needs: pip install playwright imageio-ffmpeg (Edge is used as installed).
@@ -23,6 +25,7 @@ import base64
 import functools
 import http.server
 import json
+import mimetypes
 import os
 import re
 import subprocess
@@ -85,6 +88,22 @@ def serve():
     srv = http.server.ThreadingHTTPServer(('127.0.0.1', 0), handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv
+
+
+# ── Slide images ──
+
+
+def inline_images(board, base):
+    """Slide images as data URLs (the storyboard may live outside the served folder)"""
+    for i, st in enumerate(board.get('steps', [])):
+        img = (st.get('slide') or {}).get('image')
+        if not img or re.match(r'(data|blob|https?):', img):
+            continue
+        path = (base / img).resolve()
+        if not path.is_file():
+            raise SystemExit(f'step "{st.get("name", f"step{i + 1}")}": no image {path}')
+        mime = mimetypes.guess_type(path.name)[0] or 'image/png'
+        st['slide']['image'] = f'data:{mime};base64,' + base64.b64encode(path.read_bytes()).decode()
 
 
 # ── Browser ──
@@ -183,6 +202,7 @@ def main():
 
     sb_path = Path(a.storyboard).resolve()
     board = json.loads(sb_path.read_text(encoding='utf-8'))
+    inline_images(board, sb_path.parent)
     if a.draft:
         board['size'] = board.get('size', 1080) // 2
         board['fps'] = 15
@@ -208,6 +228,11 @@ def main():
         print(f'[info] camera at {cam["distance"]:.2f} from {[round(v, 2) for v in cam["target"]]} '
               f'(cloud radius {cam["fit_radius"]:.2f})')
         for st in plan['steps']:
+            sl = st.get('slide')
+            if sl:
+                image = f', image ({sl["layout"]})' if sl['image'] else ''
+                print(f'[info]   {st["name"]}: slide "{sl["title"]}"{image}, {st["hold"]:g} s')
+                continue
             mapped = f' ({st["gene_mapping"]} by {st["gene"]})' if st.get('gene') else ''
             print(f'[info]   {st["name"]}: {st["cells"]:,} cells by {st["color_by"]}{mapped}, '
                   f'n_neighbors {st["n_neighbors"]}, "{st["caption"]}"')

@@ -771,7 +771,7 @@
 </div>
 
 <div id="util-buttons" style="display:none">
-  <button id="btn-storyboard" title="Load a storyboard (.json; or drop one on the page)">&#127902;</button>
+  <button id="btn-storyboard" title="Load a storyboard (.json, with any slide images; or drop them on the page)">&#127902;</button>
   <button id="btn-reset-view" title="Reset view">&#x21BA;</button>
   <button id="btn-hide-ui" title="Toggle UI">&#128065;</button>
   <button id="btn-fullscreen" title="Toggle fullscreen">&#x26F6;</button>
@@ -3043,11 +3043,21 @@ btnRecord.addEventListener('click', () => {
 // scripts/render_storyboard.py; there a hold is whole turns of the camera, so
 // each hold clip loops seamlessly. Captions and the legend come from
 // sbDrawHud(): into rendered frames, and onto an overlay canvas here.
+// Slides: a step with `slide: {title, body, image, layout, background}` is a
+// full-frame card (like a PowerPoint slide) that fades in over the cloud and out
+// again; it leaves the view alone (the cloud turns on underneath, and the next
+// step goes on from the one before the slide). `body` is a string (paragraphs
+// split on \n) or a list (bullets); `image` is a path (relative to the
+// storyboard; when the .json is dropped or picked, pick or drop the images with
+// it) shown whole in the space the text leaves; `layout` (with an image and a
+// body) is "stack" (text over the image), "left" or "right" (the image's side).
+// A slide holds for `seconds` (default slide_seconds) instead of turns.
 
 const SB_DEFAULTS = {
   fps: 30, size: 1080,
   turn_seconds: 24,            // one full turn of the camera; a hold is `turns` of these
   transition_seconds: 2,
+  slide_seconds: 6,
   color_by: 'cell_type', filter: {},
   n_neighbors: 40,             // the held frame (no morph)
   legend: true, legend_counts: false,
@@ -3061,7 +3071,10 @@ const SB_DEFAULTS = {
   // unless named), dof, trails, tracers, fractal (off unless named)
   render: {},
   colors: {},                  // {column: {value: '#rrggbb'}} palette overrides
-  style: { caption_size: 44, subcaption_size: 26, legend_size: 20, legend_side: 'right' },
+  style: {
+    caption_size: 44, subcaption_size: 26, legend_size: 20, legend_side: 'right',
+    slide_title_size: 64, slide_body_size: 36, slide_background: '#000000',
+  },
 };
 const SB_INHERIT = ['color_by', 'filter', 'n_neighbors', 'legend', 'colormap', 'gene_scale', 'gene_intensity', 'gene_mapping'];
 
@@ -3167,7 +3180,24 @@ async function sbBuildState(st, cfg) {
   return { colors, sizes, frame: sbFrameFor(st.n_neighbors), legend, legendKey: JSON.stringify(legend), nVisible };
 }
 
-async function sbCompile(json) {
+// A step's slide, its image loaded; resolve(path) gives the image's URL (or null)
+async function sbLoadSlide(raw, where, resolve) {
+  const sl = { title: raw.title || '', body: raw.body ?? '', layout: raw.layout || 'stack', background: raw.background || '', img: null };
+  if (!['stack', 'left', 'right'].includes(sl.layout)) throw new Error(`${where}: slide layout "${sl.layout}" (have stack, left, right)`);
+  if (raw.image) {
+    const url = /^(data|blob|https?):/.test(raw.image) ? raw.image : resolve(raw.image);
+    if (!url) throw new Error(`${where}: no image "${raw.image}" (pick or drop it together with the storyboard .json)`);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';   // or a rendered frame couldn't be read back
+    img.src = url;
+    try { await img.decode(); } catch { throw new Error(`${where}: couldn't load image "${raw.image}"`); }
+    sl.img = img;
+  }
+  if (!sl.title && !sl.body.length && !sl.img) throw new Error(`${where}: empty slide (give it a title, body or image)`);
+  return sl;
+}
+
+async function sbCompile(json, resolve) {
   const cfg = {
     ...SB_DEFAULTS, ...json,
     camera: { ...SB_DEFAULTS.camera, ...(json.camera || {}) },
@@ -3182,7 +3212,10 @@ async function sbCompile(json) {
     const st = { name: raw.name || `step${i + 1}`, caption: raw.caption || '', subcaption: raw.subcaption || '', gene: raw.gene || '' };
     for (const k of SB_INHERIT) st[k] = k in raw ? raw[k] : prev[k];
     st.transition = raw.transition ?? cfg.transition_seconds;
-    st.turns = raw.turns ?? 1;
+    st.slide = raw.slide ? await sbLoadSlide(raw.slide, `step "${st.name}"`, resolve) : null;
+    // A slide that names no view keeps the one before it (the same state, so nothing moves)
+    st.sameView = !!st.slide && i > 0 && !SB_INHERIT.some(k => k in raw);
+    st.hold = st.slide ? raw.seconds ?? cfg.slide_seconds : (raw.turns ?? 1) * cfg.turn_seconds;
     steps.push(st);
     prev = st;
   }
@@ -3191,12 +3224,11 @@ async function sbCompile(json) {
   let t = 0;
   for (const [i, st] of steps.entries()) {
     if (i > 0 && st.transition > 0) { segs.push({ kind: 'in', step: i, start: t, dur: st.transition }); t += st.transition; }
-    const hold = st.turns * cfg.turn_seconds;
-    segs.push({ kind: 'hold', step: i, start: t, dur: hold });
-    t += hold;
+    segs.push({ kind: 'hold', step: i, start: t, dur: st.hold });
+    t += st.hold;
   }
   const states = [];
-  for (const st of steps) states.push(await sbBuildState(st, cfg));
+  for (const st of steps) states.push(st.sameView ? states[states.length - 1] : await sbBuildState(st, cfg));
   const fit = sbFit([...new Set(states.map(s => s.frame))]);
   const cam = cfg.camera;
   if (cam.target === 'auto') cam.target = fit.center;
@@ -3397,9 +3429,121 @@ function sbDrawLegend(ctx, w, h, s, legend, alpha) {
   ctx.restore();
 }
 
+// A slide's title / body as lines to draw: {text, font, lh (line height), gap
+// (space above), x (indent), bullet, a (alpha)}, and their height
+function sbSlideTitle(ctx, sl, maxW, ts) {
+  ctx.font = `600 ${ts}px "Segoe UI", sans-serif`;
+  const lines = sl.title ? sbWrap(ctx, sl.title, maxW).map(text => ({ text, font: ctx.font, lh: ts * 1.2, gap: 0, x: 0, a: 0.95 })) : [];
+  return { lines, h: lines.length * ts * 1.2 };
+}
+function sbSlideBody(ctx, sl, maxW, bs) {
+  const bullets = Array.isArray(sl.body);
+  const items = bullets ? sl.body : String(sl.body).split('\n');
+  const ind = bullets ? bs * 1.2 : 0;
+  ctx.font = `${bs}px "Segoe UI", sans-serif`;
+  const lines = [];
+  for (const [j, item] of items.entries()) {
+    sbWrap(ctx, String(item), maxW - ind).forEach((text, k) => lines.push({
+      text, font: ctx.font, lh: bs * 1.35, gap: j > 0 && k === 0 ? bs * 0.5 : 0, x: ind, bullet: bullets && k === 0, a: 0.85,
+    }));
+  }
+  return { lines, h: lines.reduce((sum, l) => sum + l.gap + l.lh, 0) };
+}
+function sbDrawLines(ctx, lines, x, y, ink, center = false) {
+  ctx.textBaseline = 'top';
+  ctx.textAlign = center ? 'center' : 'left';
+  for (const l of lines) {
+    y += l.gap;
+    ctx.font = l.font;
+    ctx.fillStyle = ink(l.a);
+    if (l.bullet) ctx.fillText('•', x, y);
+    ctx.fillText(l.text, x + l.x, y);
+    y += l.lh;
+  }
+}
+// The image, whole and centred in the box
+function sbDrawImage(ctx, img, x, y, w, h) {
+  if (w <= 0 || h <= 0) return;
+  const k = Math.min(w / img.naturalWidth, h / img.naturalHeight);
+  const iw = img.naturalWidth * k, ih = img.naturalHeight * k;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih);
+}
+
+// A slide: a full-frame card. Title only: centred; text only: a block centred
+// top to bottom; with an image: the title across the top, then the body over
+// the image (stack) or beside it (left / right: the image's side)
+function sbDrawSlide(ctx, w, h, s, sl, alpha) {
+  if (alpha <= 0) return;
+  const bg = sbRgb(sl.background || sb.style.slide_background);
+  const light = 0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2] > 0.5;
+  const ink = a => light ? `rgba(20,20,20,${a})` : `rgba(255,255,255,${a})`;
+  const m = Math.min(w, h) * 0.07;
+  const ts = sb.style.slide_title_size * s, bs = sb.style.slide_body_size * s;
+  const cw = w - 2 * m, ch = h - 2 * m;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = sbCss(bg);
+  ctx.fillRect(0, 0, w, h);
+  const title = sbSlideTitle(ctx, sl, cw, ts);
+  const hasBody = !!sl.body.length;
+  if (!sl.img) {
+    const body = sbSlideBody(ctx, sl, cw, bs);
+    if (!hasBody) sbDrawLines(ctx, title.lines, w / 2, (h - title.h) / 2, ink, true);
+    else {
+      const gap = title.h ? ts * 0.7 : 0;
+      const y = m + Math.max(0, (ch - title.h - gap - body.h) / 2);
+      sbDrawLines(ctx, title.lines, m, y, ink);
+      sbDrawLines(ctx, body.lines, m, y + title.h + gap, ink);
+    }
+    ctx.restore();
+    return;
+  }
+  sbDrawLines(ctx, title.lines, w / 2, m, ink, true);
+  const top = m + title.h + (title.h ? ts * 0.6 : 0);
+  const rest = h - m - top;
+  if (!hasBody) sbDrawImage(ctx, sl.img, m, top, cw, rest);
+  else if (sl.layout === 'stack') {
+    const body = sbSlideBody(ctx, sl, cw, bs);
+    sbDrawLines(ctx, body.lines, m, top, ink);
+    const below = top + body.h + bs * 0.8;
+    sbDrawImage(ctx, sl.img, m, below, cw, h - m - below);
+  } else {
+    // Body in 42% of the width, image in the rest, both centred top to bottom
+    const gap = m * 0.6, tw = (cw - gap) * 0.42, iw = cw - gap - tw;
+    const body = sbSlideBody(ctx, sl, tw, bs);
+    const tx = sl.layout === 'right' ? m : m + iw + gap;
+    const ix = sl.layout === 'right' ? m + tw + gap : m;
+    sbDrawLines(ctx, body.lines, tx, top + Math.max(0, (rest - body.h) / 2), ink);
+    sbDrawImage(ctx, sl.img, ix, top, iw, rest);
+  }
+  ctx.restore();
+}
+
+// The HUD for a view: a slide's card fades in over the view's captions and
+// legend (or out from over them, or over the slide before)
+function sbDrawHud(ctx, w, h, view) {
+  const cur = sb.steps[view.b];
+  const prev = view.a !== view.b ? sb.steps[view.a] : null;
+  if (!cur.slide && !prev?.slide) return sbDrawViewHud(ctx, w, h, view);
+  const s = h / 1080, k = sbEase(view.p);
+  const held = i => ({ a: i, b: i, p: 1 });
+  if (!prev) sbDrawSlide(ctx, w, h, s, cur.slide, 1);
+  else if (prev.slide && cur.slide) {
+    sbDrawSlide(ctx, w, h, s, prev.slide, 1);
+    sbDrawSlide(ctx, w, h, s, cur.slide, k);
+  } else if (cur.slide) {
+    sbDrawViewHud(ctx, w, h, held(view.a));
+    sbDrawSlide(ctx, w, h, s, cur.slide, k);
+  } else {
+    sbDrawViewHud(ctx, w, h, held(view.b));
+    sbDrawSlide(ctx, w, h, s, prev.slide, 1 - k);
+  }
+}
+
 // Captions and legend for a view; in a transition the old ones fade out over its
 // first half and the new ones in over its second (unchanged ones stay put)
-function sbDrawHud(ctx, w, h, view) {
+function sbDrawViewHud(ctx, w, h, view) {
   const s = h / 1080;
   const p = view.p;
   const cur = sb.steps[view.b], curS = sb.states[view.b];
@@ -3450,7 +3594,7 @@ function sbPlan() {
     fps: sb.fps, size: sb.size, total: sb.total, turn_seconds: sb.turn_seconds, warnings,
     camera: { distance: sb.camera.distance, target: sb.camera.target, fit_radius: sb.fit.radius },
     segments: sb.segs.map(s => ({ kind: s.kind, step: s.step, name: sb.steps[s.step].name, start: s.start, dur: s.dur, frames: Math.round(s.dur * sb.fps) })),
-    steps: sb.steps.map((st, i) => ({ name: st.name, caption: st.caption, color_by: st.color_by, gene: st.gene, gene_mapping: st.gene_mapping, cells: sb.states[i].nVisible, frame: sb.states[i].frame, n_neighbors: META.nn_labels[sb.states[i].frame] })),
+    steps: sb.steps.map((st, i) => ({ name: st.name, caption: st.caption, slide: st.slide && { title: st.slide.title, image: !!st.slide.img, layout: st.slide.layout }, hold: st.hold, color_by: st.color_by, gene: st.gene, gene_mapping: st.gene_mapping, cells: sb.states[i].nVisible, frame: sb.states[i].frame, n_neighbors: META.nn_labels[sb.states[i].frame] })),
   };
 }
 
@@ -3458,8 +3602,9 @@ function sbPlan() {
 const SB_RENDER_IDS = ['point-size', 'brightness', 'bloom-strength', 'dof-amount', 'decay-time', 'tracer-length'];
 let sbSaved = null;
 
-async function sbLoad(json) {
-  const compiled = await sbCompile(json);   // throws before the view is touched
+// resolve(path): a slide image's URL (default: relative to the viewer)
+async function sbLoad(json, resolve = p => p) {
+  const compiled = await sbCompile(json, resolve);   // throws before the view is touched
   if (!sb) {
     sbSaved = {
       morphActive, rotating360, frame: currentFrame, uiHidden, playing,
@@ -3551,10 +3696,13 @@ addEventListener('keydown', (e) => {
   e.preventDefault();
 });
 
-// Load a storyboard file: the film-strip button, or dropped on the page
-async function sbLoadFile(file) {
+// Load a storyboard file: the film-strip button, or dropped on the page; slide
+// images are found among the files picked or dropped with it (by file name)
+async function sbLoadFiles(files) {
   try {
-    await sbLoad(JSON.parse(await file.text()));
+    const json = files.find(f => f.name.toLowerCase().endsWith('.json'));
+    const urls = new Map(files.filter(f => f !== json).map(f => [f.name.toLowerCase(), URL.createObjectURL(f)]));
+    await sbLoad(JSON.parse(await json.text()), p => urls.get(p.split(/[\\/]/).pop().toLowerCase()) ?? null);
   } catch (e) {
     console.error('Storyboard:', e);
     alert('Storyboard: ' + e.message);
@@ -3562,9 +3710,12 @@ async function sbLoadFile(file) {
 }
 const sbFileInput = document.createElement('input');
 sbFileInput.type = 'file';
-sbFileInput.accept = '.json,application/json';
+sbFileInput.accept = '.json,application/json,image/*';
+sbFileInput.multiple = true;
 sbFileInput.addEventListener('change', () => {
-  if (sbFileInput.files[0]) sbLoadFile(sbFileInput.files[0]);
+  const files = [...sbFileInput.files];
+  if (files.some(f => f.name.toLowerCase().endsWith('.json'))) sbLoadFiles(files);
+  else if (files.length) alert('Storyboard: pick the .json (and any slide images with it)');
   sbFileInput.value = '';
 });
 document.getElementById('btn-storyboard').addEventListener('click', (e) => {
@@ -3573,10 +3724,10 @@ document.getElementById('btn-storyboard').addEventListener('click', (e) => {
 });
 addEventListener('dragover', (e) => e.preventDefault());
 addEventListener('drop', (e) => {
-  const file = [...(e.dataTransfer?.files || [])].find(f => f.name.toLowerCase().endsWith('.json'));
-  if (!file) return;
+  const files = [...(e.dataTransfer?.files || [])];
+  if (!files.some(f => f.name.toLowerCase().endsWith('.json'))) return;
   e.preventDefault();
-  sbLoadFile(file);
+  sbLoadFiles(files);
 });
 
 window.storyboard = {
@@ -3806,8 +3957,9 @@ window.addEventListener('resize', () => {
 // ?storyboard=<url>: present a storyboard here (last, once every control exists)
 if (urlParams.get('storyboard')) {
   try {
-    const resp = await fetch(urlParams.get('storyboard'));
-    await sbLoad(await resp.json());
+    const url = new URL(urlParams.get('storyboard'), location.href);
+    const resp = await fetch(url);
+    await sbLoad(await resp.json(), p => new URL(p, url).href);   // slide images beside it
   } catch (e) {
     console.error('Storyboard:', e);
     alert('Storyboard: ' + e.message);

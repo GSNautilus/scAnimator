@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://gsnautilus.github.io/scAnimator/"><img src="media/banner.png" width="100%" alt="scAnimator: a 3D UMAP that warps from local to global structure as n_neighbors sweeps"></a>
+  <a href="https://gsnautilus.github.io/scAnimator/"><img src="media/banner.png" width="100%" alt="scAnimator: a 3D UMAP at n_neighbors 5, 10, 20 and 40"></a>
 </p>
 
 <p align="center">
@@ -8,46 +8,37 @@
 
 <h1 align="center">scAnimator</h1>
 
-<p align="center">
-  <b>Interactive 3D UMAP warp viewer for single-cell RNA-seq</b><br>
-  WebGL in the browser &middot; gene overlays &middot; frame-exact video export &middot; scripted, captioned storyboards
-</p>
+<p align="center">Rich 3D viewer and animator for scRNA-seq datasets.</p>
 
 <p align="center">
-  <a href="https://gsnautilus.github.io/scAnimator/"><b>&#9654; Open the live demo</b></a> (PBMC 3k, nothing to install)<br>
+  <a href="https://gsnautilus.github.io/scAnimator/"><b>Live demo</b></a> (PBMC 3k, runs in the browser) &middot;
   <a href="manual/scAnimator_Manual.pdf">User manual (PDF, 17 pages)</a> &middot;
   <a href="https://github.com/GSNautilus/scAnimator/releases/download/v1.5.0/scAnimator_tour.mp4">Video tour (MP4, 2 min)</a>
 </p>
 
 ---
 
-A UMAP plot is one answer to a question with a dial on it: `n_neighbors`, how local or global the
-picture should be. scAnimator turns the dial. It computes 3D UMAPs across a sweep of `n_neighbors`
-values, aligns them to each other and interpolates between them, so you can watch clusters merge,
-split and drift as the embedding moves from local to global structure. Every cell is drawn as a small
-light on black, so dense populations glow.
-
-On top of the animation you can colour and filter cells by any metadata, overlay any gene, shape the
-light with bloom, persistence, depth of field and tracers, record frame-exact video at up to 4K, and
-script a captioned tour of your data that you present with a clicker or render to MP4. It runs on
-anything from a 3,000-cell demo to atlases of a million cells, and your own data never leaves your
-computer.
+scAnimator is a 3D viewer and animator for single-cell RNA-seq data that runs in the
+browser. It animates the UMAP as `n_neighbors` changes, so you can see how clusters hold
+together or split. You can colour and filter cells by any metadata, overlay any gene, record
+video up to 4K, and script a captioned walkthrough of a dataset. It works on datasets from a
+few thousand cells to a million, from AnnData or Seurat.
 
 ## What it does
 
-- **The warp.** 3D UMAP keyframes across an `n_neighbors` sweep (e.g. 5 to 150), Procrustes-aligned and cubic-spline interpolated, played as a seamless loop; scrub it, slow it, or hold one frame.
-- **Colour, filter, normalize.** Colour by any categorical column (cell type, cluster, sample&hellip;), a solid colour, or gradients that cycle in time. Filter cells by any column, toggle categories from the legend, and downsample groups to equal counts so big populations don't hide small ones.
-- **Gene expression.** Type a gene (autocomplete ranked by expression) and show it as a colormap (7 maps), point size or brightness, on linear, log or quantile scales. Genes stream on demand by HTTP Range request, so even large datasets open fast.
-- **Rendering.** Custom Three.js point shaders with additive blending, bloom, persistence trails, depth of field and per-cell tracers.
-- **Camera and timeline.** Orbit and zoom, automatic 360° turns, one master timeline that loops morph and rotation together.
-- **Recording.** Steps through the timeline frame by frame (not a screen capture): every frame exact at 24 to 120 fps, at native size, 2K or 4K, optionally square with the legend drawn in. Frames stream into a ZIP64 archive, so long 4K recordings don't run out of memory.
-- **Storyboards.** A short JSON file of steps (colour, filter, gene, `n_neighbors`, caption, or a full-frame slide). Present it live with arrow keys or a clicker, with smooth transitions between steps, or render it to MP4 clips with `scripts/render_storyboard.py`.
-- **Experimental.** Audio reactivity (bass, mids and highs from a microphone or loopback drive size, brightness, colour or displacement, per cluster if you like) and a fractal reflection mode, for projection and live visuals.
-- **Your own data.** One script turns an AnnData `.h5ad` or a Seurat export into a dataset; open it from your own server or straight from disk with **Load Folder**.
+- Animation: 3D UMAPs at a series of `n_neighbors` values (for example 11 values from 5 to 150), aligned to each other (Procrustes) and joined with cubic splines into one loop. You can play, scrub, change speed or hold one frame.
+- Colour and filter: colour by any categorical metadata column, a solid colour, or a colormap that cycles over time. Filter cells by any column, hide categories from the legend, and downsample groups to equal sizes.
+- Gene expression: type a gene name (suggestions are ordered by total expression) and show it as colour (7 colormaps), point size or brightness, on a linear, log or quantile scale. Each gene is downloaded only when you ask for it.
+- Rendering: points drawn with custom Three.js shaders, with bloom, persistence trails, depth of field and per-cell tracers.
+- Camera: orbit and zoom with the mouse, or turn automatically. The animation and the camera turn share one timeline, so a loop ends where it started.
+- Recording: renders the timeline frame by frame at 24 to 120 fps, at window size, 2K or 4K, as a ZIP of PNG frames. A square crop and the legend are optional.
+- Storyboards: a JSON file lists steps (colour, filter, gene, `n_neighbors`, caption, or a text slide). The viewer plays them with transitions, stepping with the arrow keys, or `scripts/render_storyboard.py` renders them to MP4.
+- Experimental: audio input (bass, mids and highs can change point size, brightness, colour or position) and a mirrored "fractal" view.
+- Your own data: `scripts/build_viewer.py` converts an AnnData `.h5ad` file or a Seurat export into a dataset. Open it from a local server, or from disk with **Load Folder** (the files stay in the browser).
 
 ## A look around
 
-<p align="center"><img src="media/interface.png" width="100%" alt="The viewer: control panel, a 39,000-cell dataset glowing, legend and the control bar"></p>
+<p align="center"><img src="media/interface.png" width="100%" alt="The viewer: control panel, a 39,000-cell dataset, legend and the control bar"></p>
 <p align="center"><i>The viewer on a ~39,000-cell neural dataset, with the Render Settings group open.</i></p>
 
 | | | |
@@ -57,8 +48,8 @@ computer.
 | <img src="manual/img/fx_persistence.png" alt="Persistence"> | <img src="manual/img/fx_bloom.png" alt="Bloom"> | <img src="manual/img/fx_fractal.png" alt="Fractal reflection"> |
 | Persistence | Bloom | Fractal reflection |
 
-Every one of these pictures was taken from the viewer itself by [`manual/capture.py`](manual/capture.py).
-The [user manual](manual/scAnimator_Manual.pdf) walks through every control.
+These pictures were taken from the viewer by [`manual/capture.py`](manual/capture.py).
+The [user manual](manual/scAnimator_Manual.pdf) covers every control.
 
 ## How it works
 
@@ -68,11 +59,11 @@ Seurat (R) ── scripts/export_seurat.R ──┐
 AnnData (.h5ad, Python) ────────────────┘
 ```
 
-1. **Keyframes.** `build_viewer.py` runs a 3D UMAP at each `n_neighbors` value of the sweep, all from the same PCA (or any `obsm` embedding).
-2. **Alignment.** Each keyframe is Procrustes-aligned (rotation, reflection, scale) to the one before it, so only real structural change shows up as motion.
-3. **Interpolation.** A cubic spline gives every cell a smooth path through the keyframes; playback runs up the sweep and back down, so it loops.
-4. **Expression.** Each gene is quantized to 8 bits and stored back to back in one file with a byte index, so the viewer fetches exactly one gene at a time with an HTTP Range request.
-5. **Rendering.** The viewer (`viewer.html`, one file, no build step) loads the frames as one binary buffer and draws them with Three.js: a custom `ShaderMaterial` with per-point colour and size, additive blending, `UnrealBloomPass`, render-target ping-pong for trails, a depth pass for depth of field.
+1. `build_viewer.py` runs a 3D UMAP at each `n_neighbors` value of the sweep, all from the same PCA (or any `obsm` embedding).
+2. Each keyframe is Procrustes-aligned (rotation, reflection, scale) to the one before it, so rotations and flips between UMAP runs don't show up as motion.
+3. A cubic spline gives each cell a path through the keyframes (180 frames by default). Playback runs up the sweep and back down.
+4. Each gene is quantized to 8 bits and stored back to back in one file with a byte index, so the viewer fetches exactly one gene at a time with an HTTP Range request.
+5. The viewer (`viewer.html`, one file, no build step) loads the frames as one binary buffer and draws them with Three.js: a custom `ShaderMaterial` with per-point colour and size, additive blending, `UnrealBloomPass`, render-target ping-pong for trails, a depth pass for depth of field.
 
 Above 200,000 cells the build reads the `.h5ad` in backed mode and streams expression through `h5py`,
 and a sweep keeps checkpoints so an interrupted run resumes.

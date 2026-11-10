@@ -1,0 +1,54 @@
+{
+  "dataset": "pbmc3k",
+  "size": 1080,
+  "fps": 30,
+  "turn_seconds": 24,
+  "transition_seconds": 2.5,
+  "render": { "point_size": 40, "brightness": 0.8, "bloom": 0.5 },
+  "camera": { "zoom": 1.2, "elevation": 15, "start_angle": 0 },
+  "legend": true,
+  "steps": [
+    {
+      "name": "overview",
+      "color_by": "cell_type",
+      "n_neighbors": 5,
+      "caption": "PBMC 3k",
+      "subcaption": "2,643 blood cells from one healthy donor, by cell type"
+    },
+    {
+      "name": "about",
+      "slide": {
+        "title": "What you are looking at",
+        "body": [
+          "Each point is one cell",
+          "Cells with similar gene expression sit close together",
+          "n_neighbors sets how local or global that picture is"
+        ]
+      },
+      "seconds": 6
+    },
+    {
+      "name": "lymphocytes",
+      "filter": { "cell_type": ["CD4 T", "CD8 T", "NK", "B"] },
+      "caption": "Lymphocytes",
+      "subcaption": "T, NK and B cells only"
+    },
+    {
+      "name": "nkg7",
+      "color_by": "gene:NKG7",
+      "colormap": "magma",
+      "caption": "NKG7",
+      "subcaption": "a cytotoxic granule gene: NK cells and CD8 T cells"
+    },
+    {
+      "name": "b-cells",
+      "color_by": "cell_type",
+      "filter": {},
+      "gene": "MS4A1",
+      "gene_mapping": "size",
+      "n_neighbors": 30,
+      "caption": "MS4A1 (CD20)",
+      "subcaption": "point size by expression: the B cells stand out"
+    }
+  ]
+}

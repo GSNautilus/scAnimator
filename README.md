@@ -12,6 +12,7 @@
 <p align="center">
   <a href="https://gsnautilus.github.io/scAnimator/"><b>▶&nbsp;Open the live demo</b></a>
   &nbsp;·&nbsp; PBMC 3k, runs in any WebGL2 browser, nothing to install
+  <br><a href="https://github.com/GSNautilus/scAnimator/releases/download/v1.4.0/umap_warp_demo_720p.webm">Download a demo video</a> (WebM, 48&nbsp;s, 10&nbsp;MB)
 </p>
 
 ---

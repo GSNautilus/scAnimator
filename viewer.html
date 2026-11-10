@@ -55,7 +55,7 @@
 
   UI LAYOUT
     Top center     - n_neighbors label
-    Left panel     - "scAnimator / <dataset> — v1.4.0" header, then collapsible groups:
+    Left panel     - "scAnimator / <dataset> — v1.5.0" header, then collapsible groups:
                      Color By, Filter, Normalize (downsample groups to equal counts),
                      Gene Expression, Render Settings, Experimental
                      (audio Reactivity, Fractal Reflection)
@@ -363,7 +363,7 @@
     <h3>scAnimator <img src="media/logo.png" alt="" style="height:20px;vertical-align:middle;margin-left:2px;opacity:1"></h3>
     <button id="btn-datasets" title="Back to dataset selection" onclick="window.location.href='index.html'"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></button>
   </div>
-  <div class="panel-subtitle">v1.4.0</div>
+  <div class="panel-subtitle">v1.5.0</div>
 
   <div class="panel-group collapsed">
     <div class="panel-group-header" data-toggle="group">
@@ -968,7 +968,7 @@ progress(80, 'Initializing viewer...');
 
 // ── Dataset name ──
 if (META.name) {
-  document.querySelector('.panel-subtitle').textContent = META.name + ' \u2014 v1.4.0';
+  document.querySelector('.panel-subtitle').textContent = META.name + ' \u2014 v1.5.0';
   document.title = 'scAnimator \u2014 ' + META.name;
 }
 
@@ -1686,9 +1686,10 @@ let legendVisible = {}; // category -> bool for legend toggles
 function buildLegend() {
   legendEl.innerHTML = '';
   legendVisible = {};
-  if (activeColorCol === '__solid__' || activeColorCol === '__gradient__' || activeColorCol === '__gene_expression__') { legendEl.style.display = 'none'; return; }
-  legendEl.style.display = '';
   const col = metaCols[activeColorCol];
+  // Solid, gradient and gene colouring have no categories to list
+  if (!col) { legendEl.style.display = 'none'; return; }
+  legendEl.style.display = '';
   const pal = colPalettes[activeColorCol];
 
   // Count cells per category (respect normalization)
@@ -3735,6 +3736,7 @@ window.storyboard = {
   plan: sbPlan,
   frame: sbFrame,
   play() { sbRendering = false; },
+  unload: sbUnload,   // back to the normal viewer, keeping the storyboard's camera
   gpu() {
     const gl = renderer.getContext();
     const ext = gl.getExtension('WEBGL_debug_renderer_info');

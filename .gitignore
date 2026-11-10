@@ -30,3 +30,7 @@ serve.bat
 # OS
 .DS_Store
 Thumbs.db
+
+# Manual build scratch
+manual/_print.html
+manual/_pass1.pdf

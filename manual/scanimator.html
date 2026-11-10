@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>scAnimator Manual</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- =================================================================== COVER -->
+<section class="cover">
+  <div class="top">
+    <div class="kicker">User manual</div>
+    <h1>sc<b>A</b>nimator</h1>
+    <div class="sub">Interactive 3D UMAP warp viewer for single-cell RNA-seq</div>
+  </div>
+  <div class="hero"><img src="img/cover.png" alt="A single-cell UMAP drawn as glowing points with tracers"></div>
+  <div class="foot">
+    <div>WebGL &middot; Three.js &middot; Python &middot; R<br>Version 1.5, November 2026</div>
+    <div style="text-align:right">Live demo<br>gsnautilus.github.io/scAnimator</div>
+  </div>
+</section>
+
+<!-- ================================================================ CONTENTS -->
+<section class="toc">
+  <h1>CONTENTS</h1>
+  <p class="intro">Every picture of the viewer in this manual was taken from the viewer itself, by
+  <code>manual/capture.py</code>. The small dataset is the public PBMC&nbsp;3k demo you can open in the
+  live demo. The larger one is a ~39,000-cell neural dataset; its pictures are here, but its data is not
+  part of the project.</p>
+  <ol>
+    <li><span class="t">Quick start</span><span class="d">from the live demo to your first video</span><span class="pg" data-ref="quick">00</span></li>
+    <li><span class="t">The viewer at a glance</span><span class="d">what is where on screen</span><span class="pg" data-ref="glance">00</span></li>
+    <li><span class="t">What the animation shows</span><span class="d">n_neighbors, keyframes and the warp</span><span class="pg" data-ref="warp">00</span></li>
+    <li><span class="t">Colour, filter, normalize</span><span class="d">metadata, legend, gradients</span><span class="pg" data-ref="color">00</span></li>
+    <li><span class="t">Gene expression</span><span class="d">colormap, size and intensity overlays</span><span class="pg" data-ref="gene">00</span></li>
+    <li><span class="t">Render settings</span><span class="d">brightness, bloom, persistence, depth of field, tracers</span><span class="pg" data-ref="render">00</span></li>
+    <li><span class="t">Playback and camera</span><span class="d">the timeline, morph, 360, mouse</span><span class="pg" data-ref="playback">00</span></li>
+    <li><span class="t">Recording video</span><span class="d">frame-exact PNG sequences, and MP4 from them</span><span class="pg" data-ref="record">00</span></li>
+    <li><span class="t">Storyboards</span><span class="d">scripted, captioned tours: present or render</span><span class="pg" data-ref="storyboards">00</span></li>
+    <li><span class="t">Experimental</span><span class="d">audio reactivity, fractal reflection</span><span class="pg" data-ref="experimental">00</span></li>
+    <li><span class="t">Bring your own data</span><span class="d">R or Python to WebGL: build_viewer.py</span><span class="pg" data-ref="data">00</span></li>
+    <li><span class="t">Troubleshooting</span><span class="d">and the file formats</span><span class="pg" data-ref="trouble">00</span></li>
+  </ol>
+</section>
+
+<!-- ============================================================= QUICK START -->
+<section class="chapter" id="quick">
+  <header class="sec-head">
+    <div class="badge">1</div>
+    <div>
+      <div class="kicker">Start here</div>
+      <h1>Quick start</h1>
+      <p class="lede">scAnimator runs in a web browser. Nothing to install: open the live demo and the
+      PBMC&nbsp;3k dataset starts moving.</p>
+    </div>
+  </header>
+
+  <ol class="steps">
+    <li><b>Open the demo.</b> Go to <span class="val">gsnautilus.github.io/scAnimator</span> in a current
+    Chrome, Edge or Firefox (WebGL2 is needed). The landing page lists the datasets; click
+    <span class="ui">PBMC 3k</span>.</li>
+  </ol>
+  <figure><img src="img/landing.png" alt="The landing page">
+    <figcaption><b>The landing page.</b> One card per dataset, with its size. <span class="ui">Load Folder</span>
+    opens a dataset you built yourself (p.&nbsp;<span class="pg" data-ref="data">00</span>).</figcaption></figure>
+  <ol class="steps" style="counter-reset: s 1">
+    <li><b>Watch it warp.</b> The cells are already moving: the embedding sweeps from
+    <i>n_neighbors</i>&nbsp;5 to 150 and back. The label at the top says where it is.</li>
+    <li><b>Turn it around.</b> Drag to rotate, scroll to zoom. <span class="ui">360</span> makes the camera
+    circle on its own.</li>
+    <li><b>Colour it.</b> Open <span class="ui">Color By</span> in the panel on the left and pick
+    <span class="val">Cell Type</span>. Click a name in the legend to hide those cells.</li>
+    <li><b>Look up a gene.</b> Open <span class="ui">Gene Expression</span>, type <span class="val">LYZ</span>
+    and press <span class="key">Enter</span>: monocytes light up.</li>
+    <li><b>Make it glow.</b> In <span class="ui">Render Settings</span>, raise <span class="ui">Point Size</span>
+    and <span class="ui">Bloom Strength</span>.</li>
+    <li><b>Record.</b> Set a duration, press <span class="ui">Record</span>, and the viewer renders one
+    exact loop to a ZIP of PNG frames (p.&nbsp;<span class="pg" data-ref="record">00</span>).</li>
+  </ol>
+  <div class="tip">
+    <div class="t">Good to know</div>
+    <ul>
+      <li>Everything happens in your browser. A dataset you load from a folder is never uploaded anywhere.</li>
+      <li>Genes are fetched one at a time as you ask for them, so even a large dataset opens quickly.</li>
+      <li><span class="ui">&#8634;</span> (bottom right) puts the camera back if you get lost.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================================================================ AT A GLANCE -->
+<section class="chapter" id="glance">
+  <header class="sec-head">
+    <div class="badge">2</div>
+    <div>
+      <div class="kicker">Orientation</div>
+      <h1>The viewer at a glance</h1>
+      <p class="lede">The cloud fills the window. Everything you can change sits around it, and all of it
+      hides with one button when you want the picture alone.</p>
+    </div>
+  </header>
+  <div class="anatomy" style="width:88%;margin-left:auto;margin-right:auto">
+    <img src="img/ui_overview.png" alt="The viewer with its panel, legend and controls">
+    <div class="pin" style="left:14.4%;top:4.6%">1</div>
+    <div class="pin" style="left:17%;top:19%">2</div>
+    <div class="pin" style="left:50%;top:5.2%">3</div>
+    <div class="pin" style="left:84%;top:13%">4</div>
+    <div class="pin" style="left:36%;top:50%">5</div>
+    <div class="pin" style="left:31%;top:90.5%">6</div>
+    <div class="pin" style="left:27%;top:100%">7</div>
+    <div class="pin" style="left:57%;top:100%">8</div>
+    <div class="pin" style="left:93%;top:91%">9</div>
+  </div>
+  <ol class="legend">
+    <li><b>Header.</b> The dataset's name and the version. The folder button goes back to the landing page.</li>
+    <li><b>Panel.</b> Six groups that open and close: Color By, Filter, Normalize, Gene Expression, Render
+    Settings, Experimental.</li>
+    <li><b>n_neighbors label.</b> Which embedding you are looking at (or between).</li>
+    <li><b>Legend.</b> Categories with cell counts. Click one to hide or show it.</li>
+    <li><b>The cloud.</b> One point per cell. Drag to rotate, scroll to zoom.</li>
+    <li><b>Timeline.</b> Play/Pause and the playhead: drag it to scrub.</li>
+    <li><b>Motion.</b> <span class="ui">Morph</span> and <span class="ui">360</span>, each with a speed.</li>
+    <li><b>Recording.</b> Frame rate, duration, loops, square crop, legend, resolution, Record.</li>
+    <li><b>Corner buttons.</b> Storyboard, reset view, hide UI, fullscreen; the frame rate below them.</li>
+  </ol>
+  <div>
+    <div>
+      <h3>Panel groups</h3>
+      <table class="ref">
+        <tr><th>Group</th><th>What it does</th><th>Page</th></tr>
+        <tr><td class="name">Color By</td><td>colour cells by metadata, a gene, a solid colour or a moving gradient</td><td>p.&nbsp;<span class="pg" data-ref="color">00</span></td></tr>
+        <tr><td class="name">Filter</td><td>show or hide cells by any metadata column</td><td>p.&nbsp;<span class="pg" data-ref="color">00</span></td></tr>
+        <tr><td class="name">Normalize</td><td>equal cell counts per group, so big groups don't dominate</td><td>p.&nbsp;<span class="pg" data-ref="color">00</span></td></tr>
+        <tr><td class="name">Gene Expression</td><td>overlay one gene as colour, size or brightness</td><td>p.&nbsp;<span class="pg" data-ref="gene">00</span></td></tr>
+        <tr><td class="name">Render Settings</td><td>points, glow and motion effects</td><td>p.&nbsp;<span class="pg" data-ref="render">00</span></td></tr>
+        <tr><td class="name">Experimental</td><td>audio reactivity and fractal reflection</td><td>p.&nbsp;<span class="pg" data-ref="experimental">00</span></td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================== WARP -->
+<section class="chapter" id="warp">
+  <header class="sec-head">
+    <div class="badge">3</div>
+    <div>
+      <div class="kicker">The idea</div>
+      <h1>What the animation shows</h1>
+      <p class="lede">A UMAP plot is one answer to a question with a dial on it. scAnimator turns the dial
+      and lets you watch.</p>
+    </div>
+  </header>
+  <p>UMAP places cells so that each one stays near its <i>n_neighbors</i> most similar cells. With a small
+  value it only cares about very close neighbours, so fine, local structure shows and the map can break
+  into many islands. With a large value it balances each cell against more of the dataset, so the broad,
+  global arrangement shows and small groups merge. Neither picture is the true one. Watching one become
+  the other shows which clusters are robust and which only appear at one setting.</p>
+  <div class="strip">
+    <figure><img src="img/stage_5.png" alt=""><div><b>5</b></div></figure>
+    <figure><img src="img/stage_10.png" alt=""><div><b>10</b></div></figure>
+    <figure><img src="img/stage_20.png" alt=""><div><b>20</b></div></figure>
+    <figure><img src="img/stage_40.png" alt=""><div><b>40</b></div></figure>
+    <figure><img src="img/stage_150.png" alt=""><div><b>150</b></div></figure>
+  </div>
+  <p class="note" style="border:none;margin-top:0">The same ~39,000 neural cells at five <i>n_neighbors</i>
+  values, same camera. At 150 one population splits off as a separate island.</p>
+
+  <h2>How the frames are made</h2>
+  <ol class="steps">
+    <li><b>Keyframes.</b> <code>build_viewer.py</code> runs a 3D UMAP at a set of <i>n_neighbors</i> values,
+    for example 11 values from 5 to 150 (<code>--sweep 5-150-11</code>), all from the same PCA input.</li>
+    <li><b>Alignment.</b> Each UMAP is free to come out rotated or mirrored. Every keyframe is
+    Procrustes-aligned to the one before it (rotation, reflection and scale only), so whatever still
+    moves is a real change in structure.</li>
+    <li><b>In-between frames.</b> A cubic spline through the aligned keyframes gives every cell a smooth
+    path (180 frames by default). Playback runs up the sweep and back down, so it loops.</li>
+    <li><b>In the browser.</b> All frames load at once as one binary file; the viewer blends between
+    neighbouring frames, so motion stays smooth at any speed.</li>
+  </ol>
+  <div class="tip">
+    <div class="t">Reading it carefully</div>
+    <ul>
+      <li>The in-between frames are interpolations for the eye, not UMAP runs. Only the keyframes are real
+      embeddings, which is why the label reads <span class="val">n_neighbors ~ 30</span>: between keyframes
+      the value is approximate.</li>
+      <li>Distances between far-apart islands mean little in any UMAP. What a cell keeps as neighbours
+      through the sweep means more.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================================================================= COLOUR -->
+<section class="chapter" id="color">
+  <header class="sec-head">
+    <div class="badge">4</div>
+    <div>
+      <div class="kicker">Metadata</div>
+      <h1>Colour, filter, normalize</h1>
+      <p class="lede">Every categorical column the dataset was built with can colour the cells, filter them,
+      or even out their numbers.</p>
+    </div>
+  </header>
+  <div class="grid2">
+    <figure><img src="img/color_by.png" alt="Coloured by cell type">
+      <figcaption><b>Color By: Cell Type.</b> Each category gets a colour; the legend lists them with counts.</figcaption></figure>
+    <figure><img src="img/legend_toggle.png" alt="Two categories hidden from the legend">
+      <figcaption><b>Legend toggles.</b> CD4&nbsp;T and CD14+&nbsp;Mono clicked off: their names dim and
+      their cells disappear.</figcaption></figure>
+  </div>
+  <h2>Color By</h2>
+  <table class="ref">
+    <tr><th>Choice</th><th>Colours</th></tr>
+    <tr><td class="name">a metadata column</td><td>one colour per category (cell type, cluster, sample&hellip;), with a legend</td></tr>
+    <tr><td class="name">Gene Expression</td><td>the gene loaded in the Gene Expression group, through its colormap</td></tr>
+    <tr><td class="name">Solid Color</td><td>every cell one colour, picked with the colour swatch that appears</td></tr>
+    <tr><td class="name">Gradient</td><td>every cell cycles through a colormap in time with the timeline</td></tr>
+    <tr><td class="name">Gradient (Cluster)</td><td>the same, but each cluster starts at its own place in the colormap, so clusters pulse out of step</td></tr>
+  </table>
+  <div class="side wide">
+    <div>
+      <h2 style="margin-top:0">Filter</h2>
+      <p>Pick a column, then tick the categories to show. <span class="ui">All</span>, <span class="ui">None</span>
+      and <span class="ui">Invert</span> work on the whole list. Filters on different columns combine: a
+      cell shows only if every column lets it. The filter column does not have to be the colour column:
+      here the cells are coloured by cell type and Leiden clusters 0 and 1 are hidden.</p>
+      <h2>Normalize</h2>
+      <p>Pick a column and press <span class="ui">Normalize Cell Counts</span>. Every group is cut down to
+      the size of the smallest by a fixed random pick (the same cells every time), so a large population
+      no longer hides a small one. Legend counts follow. Press it again to see every cell.</p>
+    </div>
+    <figure><img src="img/panel_filter.png" alt="The Filter group" class="panel"></figure>
+  </div>
+  <div class="grid3">
+    <figure><img src="img/filter.png" alt="Filtered by Leiden cluster">
+      <figcaption><b>Filter.</b> Leiden 0 and 1 unticked, colours still by cell type.</figcaption></figure>
+    <figure><img src="img/normalize.png" alt="Normalized by cell type">
+      <figcaption><b>Normalize by Cell Type.</b> 69 cells of each type: the size of the smallest group.</figcaption></figure>
+    <figure><img src="img/gradient_cluster.png" alt="Gradient by cluster">
+      <figcaption><b>Gradient (Cluster).</b> Clusters cycle through the colormap out of step.</figcaption></figure>
+  </div>
+</section>
+
+<!-- =================================================================== GENE -->
+<section class="chapter" id="gene">
+  <header class="sec-head">
+    <div class="badge">5</div>
+    <div>
+      <div class="kicker">Expression</div>
+      <h1>Gene expression</h1>
+      <p class="lede">Type a gene and see where it is expressed, as colour, as point size or as brightness,
+      while the embedding keeps moving.</p>
+    </div>
+  </header>
+  <div class="side" style="grid-template-columns:1fr 44mm">
+    <div>
+      <ol class="steps">
+        <li><b>Type a gene symbol.</b> Suggestions appear as you type, most-expressed genes first, with
+        their rank (<span class="val">#42/13714</span>). Use <span class="key">&uarr;</span>
+        <span class="key">&darr;</span> and <span class="key">Enter</span>, or click one.</li>
+        <li><b>Choose how to show it.</b> <span class="ui">Map to</span>: Point Size, Colormap or Intensity.</li>
+        <li><b>Adjust the scale.</b> Linear, Log or Quantile, and <span class="ui">Expression Intensity</span>
+        to push faint signal up or strong signal down.</li>
+      </ol>
+      <p>Under the controls the viewer says how many cells express the gene
+      (<span class="val">LYZ: 1600/2643 cells expressing</span>). <span class="ui">Clear gene</span> goes back
+      to the plain colours. Expression is stored per gene relative to that gene's own maximum: compare genes
+      by pattern, not by brightness.</p>
+    </div>
+    <figure><img src="img/panel_gene_autocomplete.png" alt="Gene autocomplete" class="panel">
+      <figcaption><b>Autocomplete,</b> ranked by total expression.</figcaption></figure>
+  </div>
+  <div class="grid3">
+    <figure><img src="img/gene_colormap.png" alt="LYZ as a colormap">
+      <figcaption><b>Colormap.</b> LYZ in magma: the monocytes are bright.</figcaption></figure>
+    <figure><img src="img/gene_size.png" alt="MS4A1 as point size">
+      <figcaption><b>Point Size.</b> MS4A1 (CD20) keeps the cell-type colours and swells the B cells.</figcaption></figure>
+    <figure><img src="img/gene_intensity.png" alt="NKG7 as intensity">
+      <figcaption><b>Intensity.</b> NKG7 dims everything that doesn't express it: NK and CD8&nbsp;T remain.</figcaption></figure>
+  </div>
+  <table class="ref">
+    <tr><th>Control</th><th>Options</th><th>What it does</th></tr>
+    <tr><td class="name">Map to</td><td class="range">Point Size &middot; Colormap &middot; Intensity</td><td>Size and Intensity keep the Color By colours and scale size or brightness by expression. Colormap replaces the colours and shows a colour bar.</td></tr>
+    <tr><td class="name">Colormap</td><td class="range">Viridis, Magma, Plasma, Inferno, Rainbow, Turbo, Coolwarm</td><td>the colours for Colormap mapping</td></tr>
+    <tr><td class="name">Expression Scale</td><td class="range">Linear &middot; Log &middot; Quantile</td><td>Log lifts low values; Quantile spreads cells evenly over the range, good for genes with a few extreme cells</td></tr>
+    <tr><td class="name">Expression Intensity</td><td class="range">0.2 &ndash; 3.0 (1.0)</td><td>a gamma on the scaled values: above 1 brightens weak expression</td></tr>
+  </table>
+</section>
+
+<!-- ================================================================= RENDER -->
+<section class="chapter" id="render">
+  <header class="sec-head">
+    <div class="badge">6</div>
+    <div>
+      <div class="kicker">Look</div>
+      <h1>Render settings</h1>
+      <p class="lede">Each cell is drawn as a small light: points add up where they overlap, so dense regions
+      glow. These settings shape that light.</p>
+    </div>
+  </header>
+  <div class="grid3">
+    <figure><img src="img/fx_plain.png" alt=""><figcaption><b>Plain.</b> Point size 16, no effects.</figcaption></figure>
+    <figure><img src="img/fx_bloom.png" alt=""><figcaption><b>Bloom 1.4.</b> Bright regions bleed light.</figcaption></figure>
+    <figure><img src="img/fx_dof.png" alt=""><figcaption><b>Depth of field.</b> Far cells blur, near ones stay sharp.</figcaption></figure>
+    <figure><img src="img/fx_persistence.png" alt=""><figcaption><b>Persistence.</b> Old frames fade slowly: motion leaves streaks.</figcaption></figure>
+    <figure><img src="img/fx_tracers.png" alt=""><figcaption><b>Tracers.</b> Each cell draws its path over the last frames.</figcaption></figure>
+    <figure><img src="img/fx_fractal.png" alt=""><figcaption><b>Fractal reflection</b> (Experimental).</figcaption></figure>
+  </div>
+  <table class="ref">
+    <tr><th>Slider</th><th>Range (start)</th><th>What it does</th></tr>
+    <tr><td class="name">Point Intensity</td><td class="range">0.05 &ndash; 1.0 (1.0)</td><td>brightness of each point. Lower it for dense datasets so overlaps don't burn out to white.</td></tr>
+    <tr><td class="name">Bloom Strength</td><td class="range">0 &ndash; 4 (0)</td><td>glow around bright regions (Three.js UnrealBloom)</td></tr>
+    <tr><td class="name">Point Size</td><td class="range">2 &ndash; 40 (2)</td><td>size of each point. Points are drawn in perspective, so they grow as you zoom in.</td></tr>
+    <tr><td class="name">Persistence</td><td class="range">Off, 1 &ndash; 100</td><td>how slowly old frames fade: a trail of light behind moving cells</td></tr>
+    <tr><td class="name">Depth of Field</td><td class="range">Off, 1 &ndash; 100</td><td>near cells stay sharp, farther ones blur more and more: a sense of depth</td></tr>
+    <tr><td class="name">Tracer Length</td><td class="range">Off, 1 &ndash; 180 frames</td><td>lines along each cell's recent path, crisp rather than fading</td></tr>
+  </table>
+  <div class="tip">
+    <div class="t">A starting look</div>
+    <ul>
+      <li>Small dataset (a few thousand cells): Point Size 30&ndash;40, Bloom 0.5, Intensity 0.8.</li>
+      <li>Large dataset (tens of thousands): Point Size 12&ndash;18, Intensity 0.5&ndash;0.7, Bloom 0.3. More cells need less light each.</li>
+      <li>Persistence and tracers only show while something moves: turn on Morph or 360.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- =============================================================== PLAYBACK -->
+<section class="chapter" id="playback">
+  <header class="sec-head">
+    <div class="badge">7</div>
+    <div>
+      <div class="kicker">Time and space</div>
+      <h1>Playback and camera</h1>
+      <p class="lede">One timeline drives everything that moves, so a loop always comes back to where it
+      started. That is what makes recordings loop seamlessly.</p>
+    </div>
+  </header>
+  <figure><img src="img/controls.png" alt="The control bar">
+    <figcaption><b>The control bar.</b> Top row: playback. Bottom row: what moves, then how it is recorded.
+    The corner buttons sit at the bottom right.</figcaption></figure>
+  <h2>The timeline</h2>
+  <p>The playhead runs for <span class="ui">Duration</span> seconds (30 by default) and starts again. Within
+  that time each moving thing completes <span class="ui">loops</span> cycles. Drag the playhead to scrub;
+  <span class="ui">Pause</span> holds the current frame, and you can still rotate and change anything.</p>
+  <table class="ref">
+    <tr><th>Control</th><th>Options</th><th>What it does</th></tr>
+    <tr><td class="name">Play / Pause</td><td class="range"></td><td>runs or holds the timeline</td></tr>
+    <tr><td class="name">Playhead</td><td class="range">0 &ndash; Duration</td><td>drag to any moment; the n_neighbors label follows</td></tr>
+    <tr><td class="name">Morph</td><td class="range">on / off</td><td>the n_neighbors sweep. Off: the embedding holds still while everything else carries on.</td></tr>
+    <tr><td class="name">Morph speed</td><td class="range">0.1, 0.25, 0.5, 1, 2, 4&times;</td><td>sweeps per loop. Click to step through.</td></tr>
+    <tr><td class="name">360</td><td class="range">on / off</td><td>circles the camera around the view's current up axis, at the current zoom</td></tr>
+    <tr><td class="name">360 speed</td><td class="range">0.1 &ndash; 4&times;</td><td>turns per loop</td></tr>
+    <tr><td class="name">Duration</td><td class="range">1 &ndash; 600 s</td><td>length of the timeline (and of a recording)</td></tr>
+    <tr><td class="name">loops</td><td class="range">1 &ndash; 99</td><td>how many times Morph and 360 cycle within one Duration</td></tr>
+  </table>
+  <h2>Mouse and keys</h2>
+  <table class="ref">
+    <tr><th>Do</th><th>To</th></tr>
+    <tr><td class="name">Drag</td><td>rotate around the centre of the cloud</td></tr>
+    <tr><td class="name">Scroll</td><td>zoom in and out</td></tr>
+    <tr><td class="name"><span class="ui">&#8634;</span> Reset view</td><td>camera back to the start (and leaves a storyboard)</td></tr>
+    <tr><td class="name"><span class="ui">&#128065;</span> Hide UI</td><td>hide panel, legend, labels and controls for a clean picture</td></tr>
+    <tr><td class="name"><span class="ui">&#x26F6;</span> Fullscreen</td><td>the browser's full screen; <span class="key">Esc</span> leaves it</td></tr>
+    <tr><td class="name">In a storyboard</td><td><span class="key">&rarr;</span> <span class="key">&darr;</span> <span class="key">Space</span> <span class="key">PgDn</span> next step; <span class="key">&larr;</span> <span class="key">&uarr;</span> <span class="key">PgUp</span> back; <span class="key">Home</span> first step (presentation clickers work)</td></tr>
+  </table>
+</section>
+
+<!-- ================================================================= RECORD -->
+<section class="chapter" id="record">
+  <header class="sec-head">
+    <div class="badge">8</div>
+    <div>
+      <div class="kicker">Export</div>
+      <h1>Recording video</h1>
+      <p class="lede">Recording does not capture the screen. It steps through the timeline frame by frame,
+      so every frame is exact at any resolution, however slow the computer.</p>
+    </div>
+  </header>
+  <figure style="width:62%"><img src="img/recording.png" alt="Recording in progress">
+    <figcaption><b>Recording.</b> REC shows at the top, the button reads <span class="ui">Stop Rec</span>.
+    The legend in the corner is drawn into the frames when <span class="ui">Legend</span> is ticked.</figcaption></figure>
+  <ol class="steps">
+    <li><b>Set up the view.</b> Colours, gene, render settings, camera angle. Turn on Morph and/or 360.</li>
+    <li><b>Choose the loop.</b> <span class="ui">Duration</span> is the length of the video;
+    <span class="ui">loops</span> how many sweeps or turns fit in it. Pick the frame rate.</li>
+    <li><b>Choose the frame.</b> <span class="ui">Square</span> crops to a centred square;
+    <span class="ui">Native</span> records at the window's size, <span class="ui">2K</span> and
+    <span class="ui">4K</span> render square frames of 2160 or 3840 pixels.</li>
+    <li><b>Press Record.</b> The timeline restarts and renders Duration &times; fps frames. It stops by itself
+    at the end of the loop (or press <span class="ui">Stop Rec</span>) and downloads
+    <code>umap_warp_frames_60fps.zip</code>: numbered PNG frames and <code>fps.txt</code>.</li>
+  </ol>
+  <h2>Making an MP4</h2>
+  <p>Unzip the frames and turn them into a video with <a href="https://ffmpeg.org">ffmpeg</a> (PowerShell or
+  any shell, in the unzipped folder):</p>
+  <pre>ffmpeg -framerate 60 -i frame_%05d.png -c:v libx264 -crf 16 -pix_fmt yuv420p umap_warp.mp4</pre>
+  <p class="note" style="margin-top:0">Use the number in <code>fps.txt</code> for <code>-framerate</code>. Because
+  the loop ends where it started, the MP4 loops seamlessly too. Frames are written straight into the ZIP
+  (ZIP64), so even long 4K recordings don't run out of memory.</p>
+  <table class="ref">
+    <tr><th>Setting</th><th>Options</th><th>Notes</th></tr>
+    <tr><td class="name">fps</td><td class="range">24, 30, 60, 120</td><td>frames per second of the result, not of the screen</td></tr>
+    <tr><td class="name">Duration &middot; loops</td><td class="range">1&ndash;600 s &middot; 1&ndash;99</td><td>shared with playback (p.&nbsp;<span class="pg" data-ref="playback">00</span>)</td></tr>
+    <tr><td class="name">Square</td><td class="range">on (default) / off</td><td>centred square crop, for social media and slides</td></tr>
+    <tr><td class="name">Legend</td><td class="range">on (default) / off</td><td>draws the legend (or gene colour bar) into the frames</td></tr>
+    <tr><td class="name">Resolution</td><td class="range">Native, 2K, 4K</td><td>2K and 4K render off-screen at that size, independent of the window</td></tr>
+  </table>
+</section>
+
+<!-- ============================================================ STORYBOARDS -->
+<section class="chapter" id="storyboards">
+  <header class="sec-head">
+    <div class="badge">9</div>
+    <div>
+      <div class="kicker">Tell a story</div>
+      <h1>Storyboards</h1>
+      <p class="lede">A storyboard is a short JSON file: a list of views, each with a caption. Present it live
+      with a clicker, or render it to MP4 clips.</p>
+    </div>
+  </header>
+  <div class="grid3">
+    <figure><img src="img/sb_1_overview.png" alt=""><figcaption><b>1 overview.</b> By cell type, with caption and legend.</figcaption></figure>
+    <figure><img src="img/sb_3_lymphocytes.png" alt=""><figcaption><b>3 lymphocytes.</b> A filter fades the other cells out.</figcaption></figure>
+    <figure><img src="img/sb_4_nkg7.png" alt=""><figcaption><b>4 nkg7.</b> Coloured by a gene, with its colour bar.</figcaption></figure>
+  </div>
+  <p>Each step is a <b>view</b>: what to colour by, which cells to show, which <i>n_neighbors</i> frame to
+  hold. Between steps the viewer <b>transitions</b>: cells fade in and out, colours cross-fade, and if the
+  n_neighbors changes the embedding morphs. The camera keeps turning throughout. A step can also be a
+  <b>slide</b>, a full-frame card of text and an image that fades over the cloud.</p>
+  <pre>{
+  "dataset": "pbmc3k",
+  "render": { "point_size": 40, "brightness": 0.8, "bloom": 0.5 },
+  "camera": { "zoom": 1.2, "elevation": 15 },
+  "steps": [
+    { "name": "overview", "color_by": "cell_type", "n_neighbors": 5,
+      "caption": "PBMC 3k", "subcaption": "2,643 blood cells, by cell type" },
+    { "name": "lymphocytes", "filter": { "cell_type": ["CD4 T", "CD8 T", "NK", "B"] },
+      "caption": "Lymphocytes" },
+    { "name": "nkg7", "color_by": "gene:NKG7", "colormap": "magma", "caption": "NKG7" }
+  ]
+}</pre>
+  <p class="note" style="margin-top:0">The full example is <code>examples/pbmc3k_tour.json</code> in the repository.</p>
+  <h2>Present it</h2>
+  <p>Load it with the film-strip button, by dropping the <code>.json</code> (and any slide images) onto the
+  viewer, or with <code>viewer.html?dataset=pbmc3k&amp;storyboard=&lt;url&gt;</code>. Each step holds, turning,
+  until you press <span class="key">&rarr;</span>. <span class="ui">&#8634;</span> leaves the storyboard and puts
+  your own settings back.</p>
+  <h2>Render it</h2>
+  <pre>python scripts/render_storyboard.py examples/pbmc3k_tour.json            # MP4 clips + _full.mp4
+python scripts/render_storyboard.py examples/pbmc3k_tour.json --stills   # one frame per step: a quick check</pre>
+  <p>The script drives the viewer in Edge (Playwright) frame by frame and encodes with ffmpeg: per step a
+  transition clip and a seamlessly looping hold clip. <code>--draft</code> renders half size.</p>
+</section>
+
+<section class="chapter" id="storyboards-ref" style="break-before: page">
+  <h2 style="margin-top:0">Storyboard reference</h2>
+  <table class="ref">
+    <tr><th>Top-level field</th><th>Default</th><th>Meaning</th></tr>
+    <tr><td class="mono">dataset</td><td class="range"></td><td>dataset id (the folder name in <code>datasets/</code>), for rendering</td></tr>
+    <tr><td class="mono">size, fps</td><td class="range">1080, 30</td><td>rendered frame size (square) and rate</td></tr>
+    <tr><td class="mono">turn_seconds</td><td class="range">24</td><td>one full camera turn; a step holds for whole turns</td></tr>
+    <tr><td class="mono">transition_seconds</td><td class="range">2</td><td>default transition between steps</td></tr>
+    <tr><td class="mono">slide_seconds</td><td class="range">6</td><td>default hold for a slide</td></tr>
+    <tr><td class="mono">camera</td><td class="range">auto</td><td><code>distance</code>, <code>target</code> (auto: fit 98% of cells), <code>zoom</code>, <code>elevation</code>, <code>start_angle</code></td></tr>
+    <tr><td class="mono">render</td><td class="range">{}</td><td><code>point_size</code>, <code>brightness</code>, <code>bloom</code>; <code>dof</code>, <code>trails</code>, <code>tracers</code>, <code>fractal</code> (off unless named)</td></tr>
+    <tr><td class="mono">colors</td><td class="range">{}</td><td>palette overrides: <code>{"cell_type": {"B": "#3fa7ff"}}</code></td></tr>
+    <tr><td class="mono">style</td><td class="range"></td><td>caption, subcaption, legend and slide font sizes; <code>legend_side</code>; <code>slide_background</code></td></tr>
+  </table>
+  <table class="ref">
+    <tr><th>Step field</th><th>Inherited</th><th>Meaning</th></tr>
+    <tr><td class="mono">name</td><td class="range">no</td><td>used for clip file names and <code>--only</code></td></tr>
+    <tr><td class="mono">caption, subcaption</td><td class="range">no</td><td>text at the bottom of the frame</td></tr>
+    <tr><td class="mono">color_by</td><td class="range">yes</td><td>a metadata column, or <code>gene:&lt;symbol&gt;</code></td></tr>
+    <tr><td class="mono">filter</td><td class="range">yes</td><td><code>{column: [values shown]}</code>; a step's filter replaces the previous one; <code>{}</code> shows all</td></tr>
+    <tr><td class="mono">n_neighbors</td><td class="range">yes</td><td>the frame to hold (nearest keyframe); a change morphs</td></tr>
+    <tr><td class="mono">gene, gene_mapping</td><td class="range">mapping only</td><td>scale size or intensity of the categorical colours by a gene</td></tr>
+    <tr><td class="mono">colormap, gene_scale, gene_intensity</td><td class="range">yes</td><td>as in the Gene Expression panel</td></tr>
+    <tr><td class="mono">legend, legend_counts</td><td class="range">legend</td><td>show the legend; with counts</td></tr>
+    <tr><td class="mono">turns</td><td class="range">no</td><td>hold length in camera turns (default 1)</td></tr>
+    <tr><td class="mono">transition</td><td class="range">no</td><td>seconds of transition into this step</td></tr>
+    <tr><td class="mono">slide</td><td class="range">no</td><td><code>title</code>, <code>body</code> (text or a list of bullets), <code>image</code>, <code>layout</code> (stack, left, right), <code>background</code>; hold with <code>seconds</code></td></tr>
+  </table>
+  <div class="grid3">
+    <figure><img src="img/sb_2_about.png" alt=""><figcaption><b>A slide.</b> Title and bullets over the cloud, which keeps turning underneath.</figcaption></figure>
+    <figure><img src="img/sb_5_b-cells.png" alt=""><figcaption><b>gene + gene_mapping.</b> Cell-type colours, size by MS4A1.</figcaption></figure>
+  </div>
+</section>
+
+<!-- ============================================================ EXPERIMENTAL -->
+<section class="chapter" id="experimental">
+  <header class="sec-head">
+    <div class="badge">10</div>
+    <div>
+      <div class="kicker">For performance</div>
+      <h1>Experimental</h1>
+      <p class="lede">Two effects made for projection and live visuals rather than analysis.</p>
+    </div>
+  </header>
+  <div class="side wide">
+    <div>
+      <h2 style="margin-top:0">Audio reactivity</h2>
+      <p>Tick <span class="ui">Enable Audio Input</span> and allow the microphone (or pick another input
+      device, such as a loopback of your music). The sound is split into three bands, each with a level
+      meter, and each band drives one property of every cell.</p>
+      <table class="ref">
+        <tr><th>Band</th><th>Range</th><th>Drives (start)</th></tr>
+        <tr><td class="name">Bass</td><td class="range">20 &ndash; 250 Hz</td><td>Point Size</td></tr>
+        <tr><td class="name">Mids</td><td class="range">250 Hz &ndash; 4 kHz</td><td>Intensity</td></tr>
+        <tr><td class="name">Highs</td><td class="range">4 &ndash; 20 kHz</td><td>Colormap</td></tr>
+      </table>
+      <p>Each band can map to Point Size, Intensity, Colormap or <b>Displacement</b> (cells jitter out of
+      place), and has a Scale curve (linear, log to boost quiet sound, exponential to boost peaks),
+      Sensitivity, Strength, Smoothing and Spread (how differently cells respond).</p>
+      <ul class="plain">
+        <li><b>Peak Hold</b> keeps each band at its last peak and lets it fall slowly.</li>
+        <li><b>Cluster Mapping</b> gives each cluster of a chosen column one band, in turn: clusters answer
+        different parts of the music.</li>
+        <li><b>Expression Weight</b> scales the response by the loaded gene: expressing cells react most.</li>
+      </ul>
+    </div>
+    <figure><img src="img/panel_experimental.png" alt="The Experimental group" class="panel"></figure>
+  </div>
+  <div>
+    <div>
+      <h2 style="margin-top:0">Fractal reflection</h2>
+      <p>Repeats the picture as a kaleidoscope of smaller copies around the centre.
+      <span class="ui">Divisions</span> (2&ndash;8) sets how many, <span class="ui">Opacity</span> how strong
+      the copies are, and <span class="ui">Show original in center</span> keeps the full-size cloud on top
+      (picture on p.&nbsp;<span class="pg" data-ref="render">00</span>).</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================================================================== DATA -->
+<section class="chapter" id="data">
+  <header class="sec-head">
+    <div class="badge">11</div>
+    <div>
+      <div class="kicker">Your own dataset</div>
+      <h1>Bring your own data</h1>
+      <p class="lede">Any dataset with a PCA (or another embedding) and cell metadata can be animated. One
+      Python script turns it into the files the viewer reads.</p>
+    </div>
+  </header>
+  <div class="diagram">
+    <svg viewBox="0 0 800 190" xmlns="http://www.w3.org/2000/svg" font-family="Bahnschrift, Segoe UI, sans-serif">
+      <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#17191c"/></marker></defs>
+      <g fill="#fff" stroke="#17191c" stroke-width="1.3">
+        <rect x="4" y="14" width="150" height="62" rx="6"/><rect x="4" y="112" width="150" height="62" rx="6"/>
+        <rect x="214" y="63" width="160" height="62" rx="6"/>
+        <rect x="434" y="38" width="180" height="112" rx="6"/>
+      </g>
+      <rect x="664" y="38" width="132" height="112" rx="6" fill="#050506"/>
+      <g text-anchor="middle" font-size="13" font-weight="600" fill="#17191c">
+        <text x="79" y="40">Seurat (R)</text><text x="79" y="138">AnnData (Python)</text>
+        <text x="294" y="89">export_seurat.R</text><text x="524" y="62">build_viewer.py</text>
+      </g>
+      <text x="730" y="80" text-anchor="middle" font-size="14" font-weight="600" fill="#7fd6c8">viewer.html</text>
+      <g text-anchor="middle" font-size="10" fill="#5e636b">
+        <text x="79" y="58">RunPCA, metadata</text><text x="79" y="156">.h5ad with obsm / obs</text>
+        <text x="294" y="107">pca.csv, metadata.csv, matrix</text>
+        <text x="524" y="82">3D UMAP keyframes</text><text x="524" y="97">Procrustes + spline</text>
+        <text x="524" y="112">8-bit expression per gene</text><text x="524" y="127">→ datasets/&lt;id&gt;/</text>
+        <text x="730" y="100" fill="#a7abb3">WebGL in the browser</text><text x="730" y="115" fill="#a7abb3">genes by HTTP Range</text>
+      </g>
+      <g stroke="#17191c" stroke-width="1.3" fill="none" marker-end="url(#ar)">
+        <path d="M154 45 C 185 45, 185 94, 212 94"/><path d="M374 94 L 432 94"/>
+        <path d="M154 143 C 300 143, 380 135, 432 128"/><path d="M614 94 L 662 94"/>
+      </g>
+      <text x="300" y="168" font-size="10" fill="#127a72" text-anchor="middle">--input data.h5ad</text>
+      <text x="403" y="86" font-size="10" fill="#127a72" text-anchor="middle">--export-dir</text>
+    </svg>
+  </div>
+
+  <h2>From Python (AnnData)</h2>
+  <pre>pip install numpy pandas scipy scanpy umap-learn h5py
+python scripts/build_viewer.py --input my_data.h5ad --output-dir datasets/my_data --name "My data" --sweep 5-150-11
+python scripts/update_dataset_index.py</pre>
+  <p>The UMAP input is <code>obsm["X_pca"]</code> unless you name another embedding
+  (<code>--embedding-key X_scvi</code>); with no suitable embedding, PCA is computed. The colour column is
+  found automatically (<code>cell_type</code>, <code>leiden</code>, <code>louvain</code>&hellip;) or set with
+  <code>--cell-type-col</code>. Every categorical <code>obs</code> column becomes a Color By and Filter option
+  unless you list them with <code>--metadata-cols</code>.</p>
+
+  <h2>From R (Seurat)</h2>
+  <pre>source("scripts/export_seurat.R")
+export_for_scanimator(obj, "export", cell_type = "cell_type", columns = c("seurat_clusters", "orig.ident"))</pre>
+  <pre>python scripts/build_viewer.py --export-dir export --output-dir datasets/my_data --name "My data" --sweep 5-150-11 --metadata-cols cell_type,seurat_clusters,orig.ident</pre>
+  <p><code>export_seurat.R</code> writes the PCA, the metadata and the normalized expression matrix (sparse,
+  as binary files) that <code>--export-dir</code> reads. It works with Seurat v4 and v5.</p>
+
+  <h2>Options</h2>
+  <table class="ref">
+    <tr><th>Option</th><th>Default</th><th>What it does</th></tr>
+    <tr><td class="mono">--sweep a-b-n</td><td class="range">none</td><td>n keyframes from n_neighbors a to b. Without it: one static UMAP (fast)</td></tr>
+    <tr><td class="mono">--n-interp-frames</td><td class="range">180</td><td>frames between the first and last keyframe</td></tr>
+    <tr><td class="mono">--umap-neighbors</td><td class="range">15</td><td>n_neighbors of the static UMAP</td></tr>
+    <tr><td class="mono">--embedding-key</td><td class="range">X_pca</td><td>the <code>obsm</code> key used as UMAP input</td></tr>
+    <tr><td class="mono">--no-pca</td><td class="range"></td><td>run UMAP on expression instead of computing a PCA (slow)</td></tr>
+    <tr><td class="mono">--cell-type-col</td><td class="range">auto</td><td>the default colouring column</td></tr>
+    <tr><td class="mono">--metadata-cols</td><td class="range">all categorical</td><td>comma-separated columns to include</td></tr>
+    <tr><td class="mono">--hvg-only</td><td class="range"></td><td>store only highly variable genes: a much smaller <code>expression.bin</code></td></tr>
+    <tr><td class="mono">--skip-umap / --skip-expression</td><td class="range"></td><td>reuse what an earlier run wrote</td></tr>
+    <tr><td class="mono">--name</td><td class="range">folder name</td><td>display name on the landing page and in the panel</td></tr>
+  </table>
+  <p>Above 200,000 cells the script reads the <code>.h5ad</code> in backed mode and streams expression through
+  <code>h5py</code>, so atlases of a million cells fit in ordinary memory. A sweep keeps checkpoints, so an
+  interrupted run picks up where it stopped.</p>
+
+  <h2>Opening it</h2>
+  <ul class="plain">
+    <li><b>Serve the folder:</b> <code>python -m http.server 8000</code> in the scAnimator folder, then open
+    <code>http://localhost:8000</code>. After <code>update_dataset_index.py</code> your dataset has its own card.</li>
+    <li><b>Or load it straight from disk:</b> on the landing page, <span class="ui">Load Folder</span> and pick
+    the dataset folder. The files are copied into the browser's own storage (IndexedDB) and stay on your
+    computer. This works on the live demo too.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ TROUBLESHOOTING -->
+<section class="chapter" id="trouble">
+  <header class="sec-head">
+    <div class="badge">?</div>
+    <div>
+      <div class="kicker">When something's off</div>
+      <h1>Troubleshooting</h1>
+      <p class="lede">Most problems are the browser refusing local files, or a look that suits a different
+      number of cells.</p>
+    </div>
+  </header>
+  <table class="ref">
+    <tr><th>What you see</th><th>Why, and what to do</th></tr>
+    <tr><td class="name">Stuck on "Loading data"</td><td>The page was opened as a file (<code>file://</code>): browsers block <code>fetch</code> there. Serve the folder with <code>python -m http.server 8000</code>, or use Load Folder.</td></tr>
+    <tr><td class="name">"No datasets found"</td><td><code>datasets/index.json</code> is missing or empty. Run <code>python scripts/update_dataset_index.py</code>.</td></tr>
+    <tr><td class="name">Black screen, no cloud</td><td>WebGL2 is off or blocked. Turn on hardware acceleration in the browser's settings; check <span class="val">get.webgl.org/webgl2</span>.</td></tr>
+    <tr><td class="name">Tiny dots</td><td>Point size is in perspective: zoom in, or raise Point Size (2 is the minimum).</td></tr>
+    <tr><td class="name">Everything white</td><td>Too much light: lower Point Intensity and Bloom. Large datasets need much less of both.</td></tr>
+    <tr><td class="name">Gene not found</td><td>Symbols are case-sensitive and must match the dataset (human <span class="val">CD3E</span>, mouse <span class="val">Cd3e</span>). With <code>--hvg-only</code> only variable genes exist.</td></tr>
+    <tr><td class="name">Gene overlay stays empty</td><td>A server without HTTP Range support: the viewer then fetches the whole <code>expression.bin</code>, which can take a while for large data. <code>http.server</code> and GitHub Pages both support Range.</td></tr>
+    <tr><td class="name">Slow, low fps</td><td>Depth of field, tracers and fractal cost the most. Turn them off while exploring; recording speed doesn't depend on fps.</td></tr>
+    <tr><td class="name">Recording ZIP never appears</td><td>Very long 4K recordings take time to assemble after the last frame (<span class="ui">Finalizing&hellip;</span>). If it reads <span class="ui">ZIP FAILED</span>, record fewer frames or a lower resolution.</td></tr>
+    <tr><td class="name">Audio input does nothing</td><td>The browser needs microphone permission, and only grants it on <code>https://</code> or <code>localhost</code>.</td></tr>
+    <tr><td class="name">Storyboard refused</td><td>The message names the step and the problem (no column, value or gene of that name) and lists what exists.</td></tr>
+  </table>
+
+  <h2>Dataset files</h2>
+  <table class="ref">
+    <tr><th>File</th><th>Contents</th></tr>
+    <tr><td class="mono">frames.bin</td><td>Float32, frames &times; cells &times; 3: every animation frame's positions</td></tr>
+    <tr><td class="mono">colors.bin</td><td>Float32, cells &times; 3: the default palette</td></tr>
+    <tr><td class="mono">metadata.json</td><td>cell count, frame count, n_neighbors label per frame, metadata columns and palettes, gene names</td></tr>
+    <tr><td class="mono">expression.bin</td><td>Uint8 expression per gene (0&ndash;255 of its own maximum), genes one after another</td></tr>
+    <tr><td class="mono">gene_index.json</td><td>gene &rarr; [byte offset, length] in expression.bin, for HTTP Range requests</td></tr>
+    <tr><td class="mono">gene_ranks.json</td><td>gene &rarr; rank by total expression (optional; orders the autocomplete)</td></tr>
+  </table>
+  <p class="note">The PBMC&nbsp;3k demo data is &ldquo;3k PBMCs from a Healthy Donor&rdquo; by 10x Genomics,
+  licensed under CC&nbsp;BY&nbsp;4.0, filtered, annotated and re-embedded for this viewer. scAnimator is MIT
+  licensed. Source: <span class="val">github.com/GSNautilus/scAnimator</span>.</p>
+</section>
+
+</body>
+</html>

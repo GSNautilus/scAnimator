@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<!-- The README banner. manual/capture.py renders the stage pictures and then
+     screenshots .card from this page into media/banner.png. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: transparent; }
+  .card {
+    width: 2400px; box-sizing: border-box; padding: 64px 90px 54px;
+    background: #050506; border-radius: 34px;
+    display: grid; grid-template-columns: 820px 1fr; gap: 40px; align-items: center;
+    font-family: "Bahnschrift", "Segoe UI", sans-serif; color: #eeeae2;
+  }
+  .kicker { font-size: 26px; letter-spacing: .42em; color: #6f7480; text-transform: uppercase; }
+  h1 { font-weight: 300; font-size: 128px; letter-spacing: .14em; margin: 20px 0 22px -6px; line-height: 1; }
+  h1 b { font-weight: 300; color: #7fd6c8; }
+  .sub { font-size: 38px; line-height: 1.35; color: #a7abb3; max-width: 760px; }
+  .stages { display: flex; gap: 6px; align-items: flex-end; }
+  .stage { flex: 1; text-align: center; }
+  .stage img { width: 100%; display: block; border-radius: 10px;
+    -webkit-mask-image: radial-gradient(circle at center, #000 58%, transparent 72%);
+            mask-image: radial-gradient(circle at center, #000 58%, transparent 72%); }
+  .stage div { font-size: 24px; letter-spacing: .12em; color: #6f7480; margin-top: 4px; }
+  .stage div b { color: #c9ccd2; font-weight: 400; }
+  .arrow { text-align: center; font-size: 24px; letter-spacing: .3em; color: #4b4f57; margin-top: 18px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div>
+    <div class="kicker">Single-cell RNA-seq &middot; WebGL</div>
+    <h1>sc<b>A</b>nimator</h1>
+    <div class="sub">A 3D UMAP that warps from local to global structure as <i>n_neighbors</i> sweeps, drawn in light, in your browser.</div>
+  </div>
+  <div>
+    <div class="stages">
+      <div class="stage"><img src="img/stage_5.png" alt=""><div>n_neighbors <b>5</b></div></div>
+      <div class="stage"><img src="img/stage_10.png" alt=""><div><b>10</b></div></div>
+      <div class="stage"><img src="img/stage_20.png" alt=""><div><b>20</b></div></div>
+      <div class="stage"><img src="img/stage_40.png" alt=""><div><b>40</b></div></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

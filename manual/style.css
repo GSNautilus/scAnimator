@@ -1,0 +1,150 @@
+/* scAnimator manual: print-first, A4 portrait. Edge prints it (build.py). */
+:root {
+  --ink: #17191c;
+  --muted: #5e636b;
+  --faint: #9aa0a8;
+  --rule: #d9dce0;
+  --wash: #eef3f2;
+  --accent: #127a72;        /* deep teal: the glow, printed */
+  --accent-wash: #e6f2f0;
+  --night: #050506;         /* the viewer's black */
+  --display: "Bahnschrift", "Segoe UI", sans-serif;
+  --body: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --mono: "Cascadia Mono", Consolas, monospace;
+}
+
+@page {
+  size: A4;
+  margin: 16mm 17mm 18mm 17mm;
+  @bottom-left {
+    content: "scAnimator  \00B7  User manual";
+    font: 7.5pt var(--display); color: #9aa0a8; letter-spacing: .06em;
+  }
+  @bottom-right { content: counter(page); font: 600 8pt var(--display); color: #5e636b; }
+}
+@page cover { margin: 0; @bottom-left { content: none } @bottom-right { content: none } }
+
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { margin: 0; color: var(--ink); background: #fff; font: 9.3pt/1.5 var(--body); }
+
+/* ---------------------------------------------------------------- cover */
+.cover {
+  page: cover; break-after: page; width: 210mm; height: 297mm; position: relative; overflow: hidden;
+  background: var(--night); color: #eeeae2;
+}
+.cover .hero { position: absolute; left: 0; right: 0; top: 52mm; height: 190mm; display: flex; justify-content: center; }
+.cover .hero img { height: 100%; display: block;
+  -webkit-mask-image: radial-gradient(ellipse at center, #000 55%, transparent 71%);
+          mask-image: radial-gradient(ellipse at center, #000 55%, transparent 71%); }
+.cover .top { position: absolute; top: 20mm; left: 20mm; right: 20mm; }
+.cover .kicker { font: 400 8.5pt var(--display); letter-spacing: .42em; color: #7c828c; text-transform: uppercase; }
+.cover h1 { font: 300 52pt/1 var(--display); letter-spacing: .16em; margin: 5mm 0 0 -1mm; }
+.cover h1 b { font-weight: 300; color: #7fd6c8; }
+.cover .sub { font: 400 12pt var(--display); color: #a7abb3; margin-top: 4mm; letter-spacing: .03em; }
+.cover .foot {
+  position: absolute; left: 20mm; right: 20mm; bottom: 16mm; display: flex; justify-content: space-between; align-items: flex-end;
+  border-top: .5pt solid #2b2e33; padding-top: 4mm; font: 8pt/1.55 var(--display); color: #8a9099; letter-spacing: .03em;
+}
+
+/* ------------------------------------------------------------- chapters */
+.chapter { break-before: page; }
+.sec-head {
+  display: grid; grid-template-columns: 20mm 1fr; gap: 5mm; align-items: center;
+  padding-bottom: 4.5mm; margin-bottom: 5.5mm; border-bottom: 1.2pt solid var(--ink);
+}
+.sec-head .badge {
+  width: 18mm; height: 18mm; border-radius: 50%; background: var(--night);
+  display: grid; place-items: center; font: 300 21pt var(--display); color: #7fd6c8;
+  box-shadow: inset 0 0 0 .8mm #12403c;
+}
+.sec-head .kicker { font: 400 7.8pt var(--display); letter-spacing: .3em; text-transform: uppercase; color: var(--muted); }
+.sec-head h1 { font: 600 24pt/1.05 var(--display); letter-spacing: .05em; margin: 1mm 0 1.5mm; }
+.sec-head .lede { margin: 0; font-size: 10.3pt; color: #393c41; max-width: 150mm; }
+
+h2 { font: 600 12.5pt var(--display); letter-spacing: .04em; margin: 6.5mm 0 2mm; break-after: avoid; }
+h3 { font: 600 9.2pt var(--display); letter-spacing: .08em; text-transform: uppercase; margin: 4.5mm 0 1.5mm; color: var(--accent); break-after: avoid; }
+p { margin: 0 0 2.3mm; }
+ul.plain { margin: 0 0 3mm; padding-left: 5mm; }
+ul.plain li { margin-bottom: 1mm; }
+
+/* interface words: controls, values, keys, code */
+.ui { font: 600 .9em var(--display); letter-spacing: .04em; background: var(--wash); border-radius: 1.2pt; padding: 0 .35em; white-space: nowrap; }
+.val { font: 400 .95em var(--display); letter-spacing: .02em; white-space: nowrap; }
+.key { display: inline-block; font: 600 .82em var(--display); border: .7pt solid #8b9098; border-bottom-width: 1.4pt;
+  border-radius: 1.5pt; padding: 0 .4em; background: #fff; white-space: nowrap; }
+code, .code { font: .88em var(--mono); background: #f3f4f5; border-radius: 1.2pt; padding: 0 .25em; }
+pre { font: 7.8pt/1.45 var(--mono); background: #f4f5f6; border-left: 2pt solid var(--accent); padding: 2.5mm 3.5mm;
+  margin: 1.5mm 0 4mm; white-space: pre-wrap; break-inside: avoid; }
+
+/* figures: screenshots sit on the viewer's black */
+figure { margin: 0 0 4.5mm; break-inside: avoid; }
+figure img { display: block; width: 100%; border-radius: 1.6mm; background: var(--night); }
+figure img.panel { width: auto; max-width: 100%; }
+figcaption { font-size: 7.9pt; line-height: 1.45; color: var(--muted); margin-top: 1.8mm; }
+figcaption b { color: var(--ink); font-family: var(--display); letter-spacing: .04em; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 5mm 6mm; margin: 3mm 0 4mm; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm 4.5mm; margin: 3mm 0 4mm; }
+.grid2 figure, .grid3 figure { margin: 0; }
+.side { display: grid; grid-template-columns: 1fr 56mm; gap: 6mm; align-items: start; margin: 2mm 0 4mm; break-inside: avoid; }
+.side.wide { grid-template-columns: 1fr 70mm; }
+.side figure { margin: 0; }
+.strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1.5mm; margin: 3mm 0 1mm; break-inside: avoid; }
+.strip img { width: 100%; display: block; border-radius: 1mm; }
+.strip div { text-align: center; font: 7.6pt var(--display); color: var(--muted); letter-spacing: .06em; margin-top: 1mm; }
+.strip div b { color: var(--ink); }
+
+/* annotated screenshot */
+.anatomy { position: relative; margin: 1mm 0 3mm; break-inside: avoid; }
+.anatomy img { display: block; width: 100%; border-radius: 1.6mm; }
+.anatomy .pin { position: absolute; width: 6mm; height: 6mm; margin: -3mm 0 0 -3mm; border-radius: 50%;
+  background: #7fd6c8; color: #062b28; display: grid; place-items: center; font: 700 8pt var(--display);
+  box-shadow: 0 0 0 .7mm rgba(5, 5, 6, .85); }
+ol.legend { list-style: none; margin: 0; padding: 0; counter-reset: n; columns: 2; column-gap: 8mm; font-size: 8.7pt; }
+ol.legend li { position: relative; padding-left: 7.5mm; margin-bottom: 1.8mm; counter-increment: n; break-inside: avoid; }
+ol.legend li::before { content: counter(n); position: absolute; left: 0; top: .2mm; width: 5mm; height: 5mm; border-radius: 50%;
+  background: var(--night); color: #7fd6c8; display: grid; place-items: center; font: 700 7.2pt var(--display); }
+ol.legend b { font-family: var(--display); letter-spacing: .03em; }
+
+/* reference tables */
+table.ref { width: 100%; border-collapse: collapse; font-size: 8.4pt; margin: 1mm 0 4.5mm; }
+table.ref tr { break-inside: avoid; }
+table.ref th { font: 400 6.9pt var(--display); letter-spacing: .14em; text-transform: uppercase; color: var(--muted);
+  text-align: left; padding: 0 3mm 1.4mm 0; border-bottom: .8pt solid var(--ink); }
+table.ref td { padding: 1.5mm 3mm 1.5mm 0; border-bottom: .5pt solid var(--rule); vertical-align: top; }
+table.ref td.name { font: 600 8.6pt var(--display); letter-spacing: .03em; white-space: nowrap; width: 30mm; }
+table.ref td.range { font-family: var(--display); letter-spacing: .02em; color: #3d4045; white-space: nowrap; width: 30mm; }
+table.ref td.mono { font: 7.8pt var(--mono); white-space: nowrap; }
+
+/* callouts */
+.tip { background: var(--accent-wash); border-left: 2.2pt solid var(--accent); padding: 2.6mm 4mm 1.6mm; margin: 3mm 0 4.5mm; break-inside: avoid; }
+.tip .t { font: 600 7.8pt var(--display); letter-spacing: .2em; text-transform: uppercase; color: var(--accent); margin-bottom: 1mm; }
+.tip ul { margin: 0; padding-left: 4.5mm; }
+.tip li { margin-bottom: 1mm; }
+.note { font-size: 8.2pt; color: var(--muted); border-top: .5pt solid var(--rule); padding-top: 2mm; margin-top: 3mm; }
+
+/* numbered steps */
+ol.steps { list-style: none; margin: 2mm 0 4mm; padding: 0; counter-reset: s; }
+ol.steps > li { position: relative; padding: 0 0 0 10mm; margin-bottom: 3.2mm; counter-increment: s; break-inside: avoid; }
+ol.steps > li::before { content: counter(s); position: absolute; left: 0; top: -.4mm; width: 6.6mm; height: 6.6mm; border-radius: 50%;
+  background: var(--night); color: #7fd6c8; display: grid; place-items: center; font: 600 9.5pt var(--display); }
+ol.steps b { font-family: var(--display); letter-spacing: .03em; font-size: 10pt; }
+
+/* pipeline diagram */
+.diagram { margin: 3mm 0 5mm; break-inside: avoid; }
+.diagram svg { width: 100%; height: auto; display: block; }
+
+/* build.py's page finder: takes no space, invisible */
+.mark { position: absolute; font-size: 2px; color: #fff; }
+
+/* ------------------------------------------------------------- contents */
+.toc { break-after: page; padding-top: 8mm; }
+.toc h1 { font: 300 30pt var(--display); letter-spacing: .16em; margin: 0 0 3mm; }
+.toc .intro { color: var(--muted); max-width: 150mm; margin-bottom: 8mm; }
+.toc ol { list-style: none; margin: 0; padding: 0; counter-reset: c; }
+.toc li { display: flex; align-items: baseline; gap: 3mm; padding: 1.8mm 0; border-bottom: .5pt solid var(--rule); counter-increment: c; }
+.toc li::before { content: counter(c); width: 7mm; font: 600 11pt var(--display); color: var(--accent); }
+.toc li .t { font: 600 11pt var(--display); letter-spacing: .03em; }
+.toc li .d { color: var(--muted); font-size: 8.7pt; flex: 1; }
+.toc li .pg { font: 600 11pt var(--display); color: var(--accent); min-width: 8mm; text-align: right; }
+.pg { font-family: var(--display); }
